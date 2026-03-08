@@ -1,0 +1,165 @@
+
+1. Concise Hackathon Problem Statement (Recommended)
+
+You can paste this directly into the hackathon description.
+
+Hackathon Challenge – Event-Driven Alert Processing System
+
+Design and implement a simplified event-driven alert processing pipeline that consumes messages from an upstream system and delivers notifications through multiple output channels.
+
+Participants should build a system that:
+
+Consumes alert messages from a messaging platform (e.g., Kafka or any queue).
+
+Performs basic validation, transformation, and enrichment of incoming events.
+
+Applies simple business rules to determine the appropriate notification channels.
+
+Dispatches notifications to at least two output channels (e.g., SMS and Voice).
+
+Teams should focus on demonstrating:
+
+Scalable consumer design
+
+Asynchronous processing
+
+Extensible architecture for adding new channels
+
+Resilience and error handling
+
+The solution should showcase one end-to-end flow from message ingestion to notification dispatch.
+
+2. Slightly More Technical Version
+
+If your audience is senior backend engineers, this works well.
+
+Hackathon Challenge – Designing an Event-Driven Notification Pipeline
+
+Build a prototype of a scalable event-driven notification system that processes alerts from an upstream source and dispatches them to multiple delivery channels.
+
+Your system should:
+
+Consume alert events from a messaging system (e.g., Kafka, RabbitMQ, or a simulated queue).
+
+Process events through a basic pipeline including:
+
+Validation
+
+Transformation
+
+Optional enrichment
+
+Apply simple routing or rule logic to determine notification channels.
+
+Dispatch notifications to at least two channels (e.g., SMS and Voice).
+
+Teams should demonstrate:
+
+Clean service design
+
+Concurrency / asynchronous processing
+
+Extensible channel architecture
+
+Observability and error handling
+
+The goal is to implement one fully working end-to-end flow.
+
+3. System Design Framing (If You Want Them to Think Deep)
+
+This version pushes them toward architecture thinking.
+
+Hackathon Challenge – Event-Driven Alert Processing Platform
+
+Design and prototype a lightweight alert processing platform capable of ingesting events from upstream systems and delivering notifications across multiple communication channels.
+
+The system should include:
+
+An event consumer that ingests alerts from a messaging platform.
+
+A processing pipeline that performs validation, transformation, and optional enrichment.
+
+A routing mechanism that determines which notification channels should be triggered.
+
+At least two dispatch channels (e.g., SMS and Voice).
+
+Teams are encouraged to focus on:
+
+Event-driven architecture patterns
+
+Scalable message consumption
+
+Pluggable channel design
+
+Fault tolerance and retry strategies
+
+Demonstrate one end-to-end alert flow from ingestion to delivery.
+
+
+5. Optional Constraints (These Make It More Interesting)
+
+You can add optional scoring criteria:
+
+throughput handling
+
+retry strategy
+
+dead-letter queue
+
+rate limiting
+
+idempotency
+
+Example:
+
+Bonus points for implementing retries, DLQ handling, or scalable consumer design.
+
+
+Add this rule
+
+The upstream system may occasionally send duplicate events.
+The notification system must ensure that duplicate alerts do not result in duplicate notifications being sent to users.
+
+Add this rule
+
+Notification delivery may occasionally fail (e.g., SMS provider unavailable).
+The system should implement a retry strategy, and failed messages should eventually be routed to a Dead Letter Queue (DLQ).
+
+This forces teams to think about:
+
+retry strategies
+
+exponential backoff
+
+DLQ patterns
+
+failure isolation
+
+
+Add this rule
+
+Alerts should be routed to channels based on simple rules.
+severity = CRITICAL → SMS + Voice
+severity = HIGH → SMS
+severity = MEDIUM → Email
+
+
+Real-World Constraints
+
+To simulate production scenarios, the system should consider the following:
+
+The upstream source may occasionally send duplicate events. The system should prevent duplicate notifications from being delivered.
+
+Notification delivery may fail intermittently. Teams are encouraged to implement retry strategies and Dead Letter Queue handling.
+
+Notification channels may be determined by simple routing rules (e.g., based on alert severity).
+
+Bonus points will be awarded for solutions that demonstrate robust handling of these conditions.
+
+-------------
+
+Claude:
+
+
+
+
