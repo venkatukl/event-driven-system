@@ -1,0 +1,158 @@
+
+@workspace
+
+Generate a call graph starting from FraudAlertKafkaConsumer showing all service methods involved in message processing.
+
+-------------
+
+@workspace
+
+Scan this entire repository and list all Kafka consumers or message listeners.
+
+For each consumer identify:
+
+1. Class name
+2. Kafka topic name
+3. Consumer group
+4. Entry method
+5. Service class invoked
+6. Main processing flow
+
+Return results in a structured table.
+
+
+-------
+
+
+@workspace
+
+Analyze the full message processing workflow starting from this Kafka consumer:
+
+<ConsumerClassName>
+
+Trace the entire flow including:
+
+1. message validation logic
+2. transformation logic
+3. enrichment or DB lookups
+4. rule evaluation
+5. channel selection logic
+6. dispatch or notification sending
+7. error handling and retry logic
+
+Return:
+
+1. step-by-step workflow
+2. classes involved
+3. DB tables used
+4. external APIs called
+5. possible failure points
+
+Also generate a Mermaid sequence diagram of the workflow.
+
+
+--------------
+
+@workspace
+
+For the consumer FraudAlertKafkaConsumer, produce the following:
+
+1. End-to-end workflow description
+2. List of all classes involved in processing
+3. Database tables accessed
+4. Kafka topics used
+5. Retry logic if any
+6. External services called
+
+Then produce:
+
+A Mermaid flow diagram showing the message processing pipeline.
+
+-------------
+
+@workspace
+
+Search the codebase for business rules applied to messages in the FraudAlertKafkaConsumer workflow.
+
+Identify:
+
+1. conditional logic affecting notification routing
+2. severity based routing
+3. user preference checks
+4. channel selection rules
+
+Return rules in a structured format.
+
+----------------
+
+@workspace
+
+Find all validation logic applied to incoming messages in FraudAlertKafkaConsumer.
+
+Include:
+
+1. field validations
+2. schema checks
+3. null checks
+4. message rejection conditions
+
+Return rules in a table.
+
+-------
+
+@workspace
+
+Analyze the processing flow for FraudAlertKafkaConsumer and list all database operations.
+
+Return:
+
+1. table names
+2. insert/update operations
+3. select queries
+4. purpose of each DB call
+
+-----------
+
+@workspace
+
+Based on the codebase analysis, generate a complete processing specification for the upstream system handled by FraudAlertKafkaConsumer.
+
+Include:
+
+1. message schema
+2. validation rules
+3. transformation logic
+4. enrichment steps
+5. channel routing logic
+6. notification dispatch logic
+7. retry and error handling
+8. database interactions
+
+Format this as a technical design document.
+
+
+--------------
+
+@workspace
+
+For all Kafka consumers in this repository, produce a migration inventory.
+
+For each upstream include:
+
+1. topic name
+2. consumer class
+3. message schema
+4. validation logic
+5. transformation logic
+6. dispatch channels
+7. DB tables used
+8. external integrations
+
+Return as a structured table.
+
+---------------------
+
+
+
+
+

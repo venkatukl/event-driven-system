@@ -1,0 +1,86 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "banking-message-v1",
+    "title": "Banking Upstream Message Contract",
+    "description": "Contract for messages published by the Banking upstream to inbound.banking. Any breaking change to this schema MUST be validated against the platform's ingestion and processing services before deployment.",
+    "type": "object",
+    "required": ["upstreamMsgId", "recipient", "payload"],
+    "properties": {
+        "upstreamMsgId": {
+            "type": "string",
+            "description": "Unique message ID from the upstream system. Used for deduplication.",
+            "minLength": 1,
+            "maxLength": 128,
+            "examples": ["TXN-2025-001-abc123"]
+        },
+        "recipient": {
+            "type": "string",
+            "description": "Phone number in E.164 format",
+            "pattern": "^\\+?[1-9]\\d{7,14}$",
+            "examples": ["+919876543210"]
+        },
+        "subject": {
+            "type": ["string", "null"],
+            "description": "Optional subject line (used for email channel)",
+            "maxLength": 512
+        },
+        "channel": {
+            "type": ["string", "null"],
+            "description": "Preferred channel. If null, processor assigns based on rules.",
+            "enum": ["SMS", "EMAIL", "OTP", "VOICE", "WEBHOOK", "PUSH", null]
+        },
+        "priority": {
+            "type": ["integer", "null"],
+            "description": "1=highest, 9=lowest. If null, processor assigns from config.",
+            "minimum": 1,
+            "maximum": 9
+        },
+        "templateId": {
+            "type": ["string", "null"],
+            "description": "Template reference for message body rendering",
+            "maxLength": 64
+        },
+        "scheduledAt": {
+            "type": ["string", "null"],
+            "description": "ISO-8601 timestamp for deferred delivery. Null = immediate.",
+            "format": "date-time"
+        },
+        "expiresAt": {
+            "type": ["string", "null"],
+            "description": "ISO-8601 timestamp after which message should not be delivered.",
+            "format": "date-time"
+        },
+        "payload": {
+            "type": "object",
+            "description": "Upstream-specific payload. Banking requires transactionId.",
+            "required": ["transactionId", "message"],
+            "properties": {
+                "transactionId": {
+                    "type": "string",
+                    "description": "Unique transaction reference",
+                    "minLength": 1
+                },
+                "amount": {
+                    "type": ["number", "null"],
+                    "description": "Transaction amount"
+                },
+                "currency": {
+                    "type": "string",
+                    "description": "ISO 4217 currency code",
+                    "pattern": "^[A-Z]{3}$",
+                    "default": "INR"
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Human-readable notification text",
+                    "maxLength": 500
+                },
+                "accountMasked": {
+                    "type": ["string", "null"],
+                    "description": "Masked account number, e.g., XXXX1234"
+                }
+            }
+        }
+    },
+    "additionalProperties": false
+}

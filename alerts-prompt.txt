@@ -1,0 +1,53 @@
+Actuator
+Micrometer
+
+
+Async
+DLQ
+Error Codes
+Code Coverage
+No duplicate processing (exactly-once semantic)
+Logging standards/requirements
+Auditing requirements
+Caching
+Message Validation & Normalization
+
+
+---------------------------------
+
+
+I want to design a scalable and resilient event-processing system that can handle ~5,000 messages per second per upstream without Kafka rebalancing/partition/concurrency issues. The system must support retries of failed messages, a strong and consistent DB schema, and all other factors needed for scaling.
+
+Context:
+- 5–6 unique upstream input channels, each posting messages onto Kafka topics.
+- Business logic for validation, normalization, and processing varies per upstream.
+- Processed messages are dispatched to SMS, Email, OTP, Voice, Webhooks, and Push Notifications (via enterprise vendor APIs).
+- Target stack: Java 17, Gradle, Spring Boot 3.x, Spring Kafka, Oracle DB 19c, Redis (only if absolutely required), Resilience4J, Logback.
+- Deployment: OpenShift (OCP), with configurations in ConfigMap and `application.yml`.
+
+Requirements:
+- Workflow must be configuration-driven and pluggable (adding new upstream should only require business logic + config changes).
+- Incorporate industry-standard patterns: orchestration, retry/DLQ, factory/adaptor, throttling & rate-limiting, async processing, audit, caching, transactional guarantees, etc.
+- Follow Kafka best practices for large-scale processing.
+- Proper design of DB tables with normalization and considerations in using DB sequence (e.g., should we use NUMBER(19)?)
+- Clear error codes defined and used in every stage/step of message processing (proper audit trail)
+
+
+Deliverables:
+
+Please generate initial design artifacts in markdown format that I can refine further:
+
+1. `requirements-spec.md` → functional + non-functional requirements.
+
+2. `architecture.md` → high-level architecture (eg., Kafka → Ingestion → Orchestrator → Dispatcher).
+
+3. `workflow.md` → dynamic workflow with error codes defined for each stage.
+
+4. `errors.md` → taxonomy of error codes (ingestion, validation, conversion, routing, dispatch).
+
+5. Any other `.md` files you think would help GitHub Copilot assist in development (e.g., coding conventions, logging standards., tech stack available).
+
+Additionally:
+- Suggest how many microservices are needed and their bounded contexts defined clearly.
+- Highlight any missing considerations (NFRs, logging, DB schema design, error handling) and suggest solutions on how to achieve them - add in architecture/workflow considerations.
+- Ensure outputs are structured and ready to be used in VS Code with GitHub Copilot.

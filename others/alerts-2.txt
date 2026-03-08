@@ -1,0 +1,572 @@
+README.md:
+
+# Event-Driven Notification System
+
+This repository contains a scalable, event-driven notification system built with Spring Boot 3.x, Apache Kafka, Oracle DB, Redis, and Resilience4J. It processes alerts/messages from multiple upstream systems (via Kafka topics), applies system-specific business rules, and dispatches notifications through SMS, Email, OTP, Voice, and Push channels.
+
+## High-level Overview
+
+- Upstream systems publish alerts to dedicated Kafka topics (one or more topics per system).
+- A stateless **Alert Orchestrator** service consumes these topics, normalizes and enriches events, applies per-system business logic, and routes them to per-channel Kafka topics.
+- **Channel Dispatcher** services (SMS, Email, OTP, Voice, Push) consume channel-specific topics and integrate with external providers using resilient patterns (circuit breakers, retries).
+- An **Audit** component continuously records message lifecycle, delivery status, and failure details into Oracle, with Redis used for caching hot data such as templates and user preferences.
+
+The design targets 10k messages per second with horizontal scalability and strong observability.
+
+## Services (initial cut)
+
+- `alert-orchestrator-service`  
+  - Consumes upstream Kafka topics (one per upstream system).
+  - Normalizes alerts, enriches from Oracle/Redis, determines channels.
+  - Publishes to per-channel topics and audit topics.
+
+- `sms-dispatcher-service`  
+- `email-dispatcher-service`  
+- `otp-dispatcher-service`  
+- `voice-dispatcher-service`  
+- `push-dispatcher-service`  
+  - Each consumes its own channel topic.
+  - Dispatches to external providers with Resilience4J (retry, circuit-breaker, bulkhead).
+  - Publishes status and errors to an audit topic.
+
+- `audit-service` (optional initial phase; may be folded into orchestrator first)  
+  - Consumes audit and DLQ topics.
+  - Persists audit records to Oracle.
+  - Exposes APIs for reporting and internal analysis.
+
+## Core Technologies
+
+- Java 17+ / Spring Boot 3.x
+- Spring Kafka
+- Spring Data JPA (Oracle)
+- Redis (Spring Data Redis)
+- Resilience4J
+- OpenTelemetry / Micrometer for metrics and tracing
+- Deployed on OpenShift (OCP) using ConfigMaps/Secrets for configuration
+
+## Kafka Topics (initial)
+
+- Upstream topics (examples):  
+  - `alerts.systemA.input`  
+  - `alerts.systemB.input`  
+  - `alerts.systemC.input`  
+- Normalized / internal topics (if used):  
+  - `alerts.normalized`  
+- Per-channel topics:  
+  - `alerts.sms`  
+  - `alerts.email`  
+  - `alerts.otp`  
+  - `alerts.voice`  
+  - `alerts.push`  
+- Retry & DLQ:  
+  - `alerts.<channel>.retry.<n>`  
+  - `alerts.dlq`  
+- Audit:  
+  - `alerts.audit`
+
+## Running Locally
+
+> NOTE: This is a starting point. Replace with actual commands once Docker/Compose or `skaffold` manifests are ready.
+
+- Start infra (Kafka, Redis, Oracle test instance) using Docker Compose:
+  ```bash
+  docker compose up -d
+
+Build:
+
+bash
+./mvnw clean package
+Run a service:
+
+bash
+cd alert-orchestrator-service
+./mvnw spring-boot:run
+Development Guidelines
+Business logic goes into services, not controllers or listeners.
+
+All outbound calls (e.g., external SMS/Email providers) must use Resilience4J for retry and circuit breaking.
+
+New upstream systems should be added via AlertProcessor implementations and configuration (YAML), not by branching logic in core orchestrator code.
+
+Logging must be structured and include messageId, sourceSystem, channel, and errorCode where applicable.
+
+-------------------
+
+ARCHITECTURE.md:
+
+
+***
+
+## 2. `docs/architecture.md`
+
+```markdown
+# Architecture
+
+## 1. Goals and Requirements
+
+- Process up to ~10k messages per second across multiple upstream systems.
+- All upstream systems publish to Kafka (multiple topics).
+- Stateless, horizontally scalable services deployed on OCP.
+- Strong resilience: no message loss, controlled retries, DLQ, and robust error codes.
+- Configuration-driven and pluggable: adding a new upstream system or channel should mostly involve configuration plus a small, isolated handler implementation.
+
+## 2. Bounded Contexts and Services
+
+### 2.1 Alert Orchestrator Service
+
+**Responsibilities**
+
+- Consume alerts from multiple upstream Kafka topics (one or more per upstream system).
+- Normalize events into an internal alert representation.
+- Enrich alerts using Oracle (user data, preferences, templates) and Redis cache.
+- Apply per-upstream business rules via pluggable processors.
+- Determine the target channels (SMS, Email, OTP, Voice, Push) and routing.
+- Persist core alert state and transitions.
+- Publish channel-specific messages to per-channel Kafka topics.
+- Publish audit events (status changes, errors) to audit topics.
+
+**Key Design Points**
+
+- Stateless; no in-memory long-lived state for message lifecycle.
+- Uses a factory/strategy pattern:
+  - `AlertProcessor` / `AlertHandler` per upstream system.
+  - Config-driven mapping of Kafka topic → handler → channel rules.
+- One consumer group (`alert-orchestrator-group`) across multiple orchestrator pods for parallelism.
+
+### 2.2 Channel Dispatcher Services
+
+Each channel dispatcher is a separate microservice (or at least a separate deployable):
+
+- `sms-dispatcher-service`
+- `email-dispatcher-service`
+- `otp-dispatcher-service`
+- `voice-dispatcher-service`
+- `push-dispatcher-service`
+
+**Responsibilities**
+
+- Consume channel-specific Kafka topics (e.g., `alerts.sms`).
+- Optionally read additional data (user preferences, templates) from Redis/Oracle.
+- Integrate with one or more external providers for that channel.
+- Apply rate-limiting and prioritization if needed.
+- Use Resilience4J for retry, circuit breaker, bulkhead per provider.
+- Publish delivery status and error details to `alerts.audit` and/or `alerts.<channel>.retry.*` / `alerts.dlq`.
+
+### 2.3 Audit Service
+
+**Responsibilities**
+
+- Consume `alerts.audit` and `alerts.dlq`.
+- Persist message lifecycle, status, and errors to Oracle (audit tables).
+- Expose APIs for searching and reporting on message flows.
+- May also offer ad-hoc DLQ replay/retry tools.
+
+In an initial implementation, audit consumption may be handled inside the orchestrator and later extracted into its own service.
+
+## 3. Kafka Design
+
+### 3.1 Topics
+
+- Upstream input topics:
+  - `alerts.systemA.input`
+  - `alerts.systemB.input`
+  - `alerts.systemC.input`
+  - ...
+- Internal / normalized topic (optional):
+  - `alerts.normalized`
+- Per-channel topics:
+  - `alerts.sms`
+  - `alerts.email`
+  - `alerts.otp`
+  - `alerts.voice`
+  - `alerts.push`
+- Retry topics:
+  - `alerts.sms.retry.1`, `alerts.sms.retry.2`, ...
+  - Similar per channel
+- DLQ:
+  - `alerts.dlq`
+- Audit:
+  - `alerts.audit`
+
+### 3.2 Partitioning and Keys
+
+- Upstream topics:
+  - High partition count (e.g., 64–256) for parallelism.
+  - Key by `messageId`, `userId`, or `tenantId` for ordering where needed.
+- Channel topics:
+  - Partition count sized to expected throughput per channel.
+- Consumer groups:
+  - Orchestrator: `alert-orchestrator-group`.
+  - SMS: `sms-dispatcher-group`.
+  - Email: `email-dispatcher-group`.
+  - etc.
+
+## 4. Processing Flow (Happy Path)
+
+1. Upstream system publishes a message to its dedicated input topic (e.g., `alerts.systemA.input`).
+2. Alert Orchestrator consumes the message and:
+   - Uses topic name and/or metadata to select an `AlertProcessor`.
+   - Validates and normalizes the message.
+   - Enriches from Oracle/Redis (user details, preferences, templates).
+   - Decides which channels to use and constructs channel-specific payloads.
+   - Persists the core alert record.
+   - Publishes channel-specific messages to the appropriate channel topics.
+   - Publishes an audit event for the transition.
+
+3. Each Channel Dispatcher service consumes its channel topic:
+   - Optionally enriches from cache/DB.
+   - Sends the notification to the configured provider(s) with resilience patterns.
+   - Publishes success/failure audit events.
+   - On failure:
+     - Uses retry topics for transient errors.
+     - Sends to DLQ for permanent failures or exhausted retries.
+
+4. Audit Service consumes audit and DLQ topics and persists entries in Oracle.
+
+## 5. Resilience Patterns
+
+- Resilience4J for:
+  - Retries with backoff for external provider calls.
+  - Circuit breakers per provider.
+  - Bulkheads and rate-limits as needed.
+- Kafka-based retry:
+  - Retry topics per channel with increasing backoff.
+  - DLQ topic for messages that cannot be processed successfully.
+- Idempotency:
+  - Idempotent keys for provider calls (where supported).
+  - Idempotent processing at orchestrator and dispatcher level (messageId-based).
+
+## 6. Data Model (High Level)
+
+Core Oracle tables (names indicative):
+
+- `ALERT`:
+  - `id`, `source_system`, `source_topic`, `message_key`, `raw_payload`, `status`, `created_at`, `updated_at`.
+- `ALERT_CHANNEL`:
+  - `id`, `alert_id`, `channel_type`, `provider`, `status`, `last_error_code`, `retry_count`, `created_at`, `updated_at`.
+- `ALERT_AUDIT`:
+  - `id`, `alert_id`, `channel_type`, `event_type`, `status`, `error_code`, `error_message`, `timestamp`, `metadata`.
+
+User data and templates can live in separate tables, cached in Redis for fast access.
+
+## 7. Configuration and Pluggability
+
+- Mapping of upstream topics to processors and rules defined in YAML (ConfigMaps in OCP):
+  - Example:
+    ```yaml
+    orchestrator:
+      upstreams:
+        systemA:
+          topic: alerts.systemA.input
+          processorBean: systemAAlertProcessor
+          defaultChannels: [SMS, EMAIL]
+        systemB:
+          topic: alerts.systemB.input
+          processorBean: systemBAlertProcessor
+          defaultChannels: [PUSH]
+    ```
+- Channel-specific configuration (providers, rate limits, retries) is also YAML-driven:
+  ```yaml
+  channels:
+    sms:
+      providers:
+        - name: primarySmsProvider
+          baseUrl: ...
+          timeoutMs: 2000
+          maxRetries: 3
+    email:
+      providers:
+        - name: primaryEmailProvider
+          ...
+
+
+8. Non-Functional Requirements (NFRs)
+Throughput:
+
+Target: >= 10k messages/second across all upstream topics.
+
+Latency:
+
+High priority (e.g., OTP) P99 end-to-end < 1–3 seconds.
+
+Bulk notifications can tolerate higher latency.
+
+Availability:
+
+Target 99.9%+ for critical channels.
+
+Observability:
+
+Metrics for Kafka lag, processing latency, retry counts, DLQ volume, provider errors.
+
+Distributed tracing for orchestrator and dispatchers.
+
+9. Deployment on OCP
+Each microservice is a separate deployment with:
+
+ConfigMaps for application YAML.
+
+Secrets for credentials (DB, Redis, providers).
+
+HorizontalPodAutoscaler based on CPU/QPS/Kafka lag.
+
+Common base image and logging configuration (structured logs).
+
+
+copilot-instructions.md:
+
+
+***
+
+## 3. `.github/copilot-instructions.md`
+
+```markdown
+# GitHub Copilot Repository Instructions
+
+## Project Overview
+
+This repository implements an event-driven notification system using Spring Boot 3.x, Kafka, Oracle, Redis, and Resilience4J. Upstream systems publish alerts to multiple Kafka topics. A stateless Alert Orchestrator consumes these topics, applies system-specific business logic, and routes messages to channel-specific topics. Channel Dispatcher services then deliver notifications through SMS, Email, OTP, Voice, and Push.
+
+The goal is to support ~10k messages per second with horizontal scalability and strong resilience.
+
+## Architecture Expectations
+
+- Microservices:
+  - `alert-orchestrator-service`:
+    - Consumes multiple upstream Kafka topics.
+    - Uses a pluggable `AlertProcessor` abstraction per upstream system.
+    - Normalizes and enriches messages using Oracle and Redis.
+    - Publishes messages to per-channel topics and audit topics.
+  - Channel dispatchers (`sms-dispatcher-service`, `email-dispatcher-service`, `otp-dispatcher-service`, `voice-dispatcher-service`, `push-dispatcher-service`):
+    - Consume channel-specific Kafka topics.
+    - Call external providers with Resilience4J (retry, circuit-breaker, bulkhead).
+    - Publish audit and retry/DLQ events.
+  - Optional `audit-service`:
+    - Consumes audit/DLQ topics.
+    - Persists audit records to Oracle and exposes reporting.
+
+- Kafka:
+  - Multiple upstream topics (one or more per upstream system).
+  - Per-channel topics for SMS, Email, OTP, Voice, Push.
+  - Retry topics per channel and a shared DLQ topic.
+  - Topic names and partition counts are defined in `docs/architecture.md`.
+
+## Design Rules for Copilot
+
+When generating or editing code:
+
+1. **Respect the architecture docs**
+   - Read and follow `docs/architecture.md`.
+   - Follow the package/module structure described there and in the suggestions below.
+
+2. **Orchestrator rules**
+   - Implement a central `AlertOrchestrator` or equivalent service that:
+     - Is stateless.
+     - Uses Spring Kafka consumers (`@KafkaListener`) for multiple upstream topics.
+     - Dispatches to a pluggable `AlertProcessor` interface per upstream system.
+   - Do not hard-code per-system logic directly in listeners; use strategy/factory patterns instead.
+
+3. **Channel dispatcher rules**
+   - Each dispatcher service must:
+     - Consume from its channel-specific Kafka topic.
+     - Isolate external provider-specific logic behind interfaces.
+     - Use Resilience4J for:
+       - Retry with backoff.
+       - Circuit breaker.
+       - Bulkhead limits where appropriate.
+   - Do not bypass Resilience4J when calling external providers.
+
+4. **Configuration-driven behavior**
+   - Prefer configuration (YAML, ConfigMaps) over hard-coded constants for:
+     - Topic names.
+     - Upstream system mappings.
+     - Channel defaults and provider settings.
+     - Retry counts and backoff policies.
+   - Use configuration properties classes (`@ConfigurationProperties`) instead of scattering `@Value` all over.
+
+5. **Persistence and data access**
+   - Use Spring Data JPA for Oracle where possible.
+   - Keep entities decoupled from Kafka payload DTOs.
+   - All DB access must be in repository/service classes, not controllers or Kafka listeners.
+
+6. **Error handling and logging**
+   - Use a consistent error code taxonomy (e.g., `INGEST_VALIDATION_ERROR`, `DISPATCH_PROVIDER_ERROR`).
+   - Logging must be structured and include:
+     - `messageId` (if available).
+     - `sourceSystem`.
+     - `channel`.
+     - `errorCode` (for errors).
+   - Avoid logging sensitive data.
+
+7. **Testing**
+   - Prefer JUnit 5 + Mockito (or Spring Boot test slices) for unit/integration tests.
+   - For Kafka logic, write tests using embedded Kafka or Spring Kafka test support.
+
+8. **General coding standards**
+   - Java 17+.
+   - Spring Boot 3.x idioms (e.g., use `jakarta.*` annotations).
+   - Avoid deprecated Spring APIs.
+   - Keep methods small and single-responsibility.
+   - Favor constructor injection.
+
+## How to Use Copilot Modes
+
+- **Plan mode**:
+  - Use for multi-step refactoring or large feature additions.
+  - Example prompt: “Create the initial skeleton for alert-orchestrator-service and configure Kafka consumers for upstream topics as defined in docs/architecture.md.”
+  - Review and adjust the plan before allowing implementation.
+
+- **Agent / Edit modes**:
+  - Use Agent mode to implement an approved plan with multiple file edits.
+  - Use Edit mode for localized changes or refactors in a single file or small set of files.
+
+## Out of Scope / Anti-Patterns
+
+- Do not introduce synchronous HTTP-based coupling between microservices for core workflows; rely on Kafka events.
+- Do not embed complex business logic in controllers or Kafka listeners.
+- Do not introduce new technologies outside the stack (e.g., RabbitMQ) unless explicitly requested.
+
+
+
+
+4. Suggested package / module structure
+Assuming a Maven multi‑module project (adapt similarly for Gradle):
+
+4.1 Project layout
+text
+notification-platform/
+  pom.xml
+  README.md
+  .github/
+    copilot-instructions.md
+  docs/
+    architecture.md
+    kafka-topics.md (optional)
+    conventions.md (optional)
+
+  alert-orchestrator-service/
+    pom.xml
+    src/main/java/com/example/notifications/orchestrator/...
+    src/main/resources/application.yml
+
+  sms-dispatcher-service/
+    pom.xml
+    src/main/java/com/example/notifications/sms/...
+    src/main/resources/application.yml
+
+  email-dispatcher-service/
+    pom.xml
+    src/main/java/com/example/notifications/email/...
+    src/main/resources/application.yml
+
+  otp-dispatcher-service/
+    pom.xml
+    src/main/java/com/example/notifications/otp/...
+    src/main/resources/application.yml
+
+  voice-dispatcher-service/
+    pom.xml
+    src/main/java/com/example/notifications/voice/...
+    src/main/resources/application.yml
+
+  push-dispatcher-service/
+    pom.xml
+    src/main/java/com/example/notifications/push/...
+    src/main/resources/application.yml
+
+  audit-service/  (optional for later)
+    pom.xml
+    src/main/java/com/example/notifications/audit/...
+    src/main/resources/application.yml
+
+  common/         (shared DTOs, utils, maybe common Kafka config)
+    pom.xml
+    src/main/java/com/example/notifications/common/...
+4.2 Package structure per service
+alert-orchestrator-service
+text
+com.example.notifications.orchestrator
+  config/
+    KafkaConfig.java
+    RedisConfig.java
+    OracleConfig.java
+    OrchestratorProperties.java  // @ConfigurationProperties
+  domain/
+    model/
+      Alert.java
+      ChannelType.java
+      SourceSystem.java
+    service/
+      AlertOrchestratorService.java
+      AlertRoutingService.java
+      AlertProcessor.java              // interface
+      impl/
+        SystemAAlertProcessor.java
+        SystemBAlertProcessor.java
+  infrastructure/
+    kafka/
+      UpstreamAlertListener.java       // @KafkaListener(s)
+      ChannelPublisher.java
+      AuditPublisher.java
+    persistence/
+      AlertEntity.java
+      AlertRepository.java
+  web/
+    HealthController.java  (if needed)
+sms-dispatcher-service (similar pattern for others)
+text
+com.example.notifications.sms
+  config/
+    KafkaConfig.java
+    ResilienceConfig.java
+    SmsProperties.java
+  domain/
+    model/
+      SmsMessage.java
+    service/
+      SmsDispatchService.java
+      SmsProviderClient.java          // interface
+      impl/
+        PrimarySmsProviderClient.java
+  infrastructure/
+    kafka/
+      SmsListener.java                // @KafkaListener for alerts.sms
+    http/
+      WebClientConfig.java
+  web/
+    HealthController.java
+audit-service
+text
+com.example.notifications.audit
+  config/
+    KafkaConfig.java
+    OracleConfig.java
+  domain/
+    model/
+      AlertAuditRecord.java
+    service/
+      AuditService.java
+  infrastructure/
+    kafka/
+      AuditListener.java
+      DlqListener.java
+    persistence/
+      AlertAuditEntity.java
+      AlertAuditRepository.java
+  web/
+    AuditQueryController.java
+common module
+text
+com.example.notifications.common
+  dto/
+    AlertPayloadDto.java
+    ChannelPayloadDto.java
+  kafka/
+    KafkaTopicNames.java
+  error/
+    ErrorCode.java           // enum
+    ErrorCategory.java
+  logging/
+    LoggingKeys.java
+  util/
+    JsonUtils.java

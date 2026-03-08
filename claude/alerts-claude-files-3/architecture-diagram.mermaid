@@ -1,0 +1,200 @@
+---
+title: Event Processing Platform — Architecture Diagram (Component & Infrastructure View)
+---
+
+flowchart TB
+    %% ═══════════════════════════════════════
+    %% EXTERNAL UPSTREAMS
+    %% ═══════════════════════════════════════
+    UP_BANK["🏦 Banking<br/>Upstream"]
+    UP_INS["🛡️ Insurance<br/>Upstream"]
+    UP_OTP["🔐 OTP Auth<br/>Upstream"]
+    UP_MKT["📢 Marketing<br/>Upstream"]
+    UP_LOG["🚚 Logistics<br/>Upstream"]
+
+    UP_BANK -->|"Kafka Producer<br/>SASL/SCRAM + TLS"| K_IN
+    UP_INS -->|"Kafka Producer"| K_IN
+    UP_OTP -->|"Kafka Producer"| K_IN
+    UP_MKT -->|"Kafka Producer"| K_IN
+    UP_LOG -->|"Kafka Producer"| K_IN
+
+    %% ═══════════════════════════════════════
+    %% KAFKA CLUSTER
+    %% ═══════════════════════════════════════
+    subgraph KAFKA_CLUSTER ["☁️ KAFKA CLUSTER (3 Brokers, RF=3)"]
+        direction TB
+        K_IN["📥 inbound.* topics<br/>(10 partitions each)"]
+        K_PROC["⚙️ processing.events<br/>(10 partitions)"]
+        K_DISP_SMS["📱 dispatch.sms (10)"]
+        K_DISP_EMAIL["📧 dispatch.email (10)"]
+        K_DISP_OTP["🔑 dispatch.otp (6)"]
+        K_DISP_VOICE["📞 dispatch.voice (4)"]
+        K_DISP_WH["🔗 dispatch.webhook (10)"]
+        K_DISP_PUSH["🔔 dispatch.push (10)"]
+        K_RETRY["♻️ retry.events (6)"]
+        K_DLT["💀 dlt.events (4)"]
+        K_AUDIT["📋 audit.events (10)"]
+    end
+
+    %% ═══════════════════════════════════════
+    %% INGESTION SERVICE
+    %% ═══════════════════════════════════════
+    subgraph ING_SVC ["🔵 INGESTION SERVICE<br/>(2 pods × concurrency=5)"]
+        ING_CONSUMER["Kafka Batch Consumer<br/>CooperativeStickyAssignor<br/>Static Group Membership"]
+        ING_DEDUP["Deduplication<br/>Service"]
+        ING_SCHEMA["Schema Validation<br/>Service"]
+        ING_ENRICH["Header Enrichment<br/>(correlationId, traceId)"]
+    end
+
+    K_IN -->|"Kafka Consumer<br/>batch=500, manual ack"| ING_CONSUMER
+    ING_CONSUMER --> ING_DEDUP
+    ING_DEDUP --> ING_SCHEMA
+    ING_SCHEMA --> ING_ENRICH
+    ING_ENRICH -->|"Kafka Producer<br/>idempotent, lz4"| K_PROC
+
+    %% ═══════════════════════════════════════
+    %% PROCESSOR SERVICE (merged Processing + Dispatch + Retry)
+    %% ═══════════════════════════════════════
+    subgraph PROC_SVC ["🟢 PROCESSOR SERVICE<br/>(3 pods × concurrency=5)"]
+        direction TB
+
+        subgraph PROC_LAYER ["Processing Layer"]
+            PROC_CONSUMER["Kafka Batch Consumer<br/>(processing.events)"]
+            PROC_FACTORY["UpstreamProcessorFactory<br/>(resolves by upstream_id)"]
+            PROC_VALIDATE["Business Validation<br/>(upstream-specific)"]
+            PROC_NORMALISE["Payload Normalisation<br/>+ Channel Resolution"]
+            PROC_BATCH_DB["JDBC Batch INSERT<br/>(events table, batch=500)"]
+        end
+
+        subgraph DISP_LAYER ["Dispatch Layer"]
+            DISP_CONSUMER["Kafka Batch Consumer<br/>(dispatch.* topics)"]
+            DISP_FACTORY["ChannelAdapterFactory<br/>(resolves by channel)"]
+            DISP_RL["Resilience4J<br/>RateLimiter"]
+            DISP_CB["Resilience4J<br/>CircuitBreaker"]
+            DISP_ASYNC["Async Thread Pool<br/>(50 threads, CallerRunsPolicy)"]
+            DISP_BATCH_DB["JDBC Batch INSERT<br/>(event_dispatches, batch=500)"]
+        end
+
+        subgraph RETRY_LAYER ["Retry Layer"]
+            RETRY_CONSUMER["Kafka Consumer<br/>(retry.events)"]
+            RETRY_BACKOFF["Exponential Backoff<br/>+ Jitter Calculator"]
+            RETRY_DECIDE["Retry / Expire / DLT<br/>Decision Engine"]
+        end
+    end
+
+    K_PROC -->|"Kafka Consumer"| PROC_CONSUMER
+    PROC_CONSUMER --> PROC_FACTORY --> PROC_VALIDATE --> PROC_NORMALISE --> PROC_BATCH_DB
+    PROC_BATCH_DB -->|"Kafka Producer"| K_DISP_SMS
+    PROC_BATCH_DB -->|"Kafka Producer"| K_DISP_EMAIL
+    PROC_BATCH_DB -->|"Kafka Producer"| K_DISP_OTP
+    PROC_BATCH_DB -->|"Kafka Producer"| K_DISP_VOICE
+    PROC_BATCH_DB -->|"Kafka Producer"| K_DISP_WH
+    PROC_BATCH_DB -->|"Kafka Producer"| K_DISP_PUSH
+
+    K_DISP_SMS & K_DISP_EMAIL & K_DISP_OTP & K_DISP_VOICE & K_DISP_WH & K_DISP_PUSH -->|"Kafka Consumer"| DISP_CONSUMER
+    DISP_CONSUMER --> DISP_FACTORY --> DISP_RL --> DISP_CB --> DISP_ASYNC --> DISP_BATCH_DB
+
+    DISP_ASYNC -->|"HTTPS REST<br/>(with timeout)"| VENDORS
+
+    DISP_BATCH_DB -->|"Kafka Producer<br/>(on failure)"| K_RETRY
+    K_RETRY -->|"Kafka Consumer"| RETRY_CONSUMER
+    RETRY_CONSUMER --> RETRY_BACKOFF --> RETRY_DECIDE
+    RETRY_DECIDE -->|"Re-dispatch<br/>Kafka Producer"| K_DISP_SMS
+    RETRY_DECIDE -->|"Exhausted →<br/>Kafka Producer"| K_DLT
+
+    %% ═══════════════════════════════════════
+    %% AUDIT SERVICE
+    %% ═══════════════════════════════════════
+    subgraph AUDIT_SVC ["📋 AUDIT SERVICE<br/>(2 pods × concurrency=5)"]
+        AUDIT_CONSUMER["Kafka Batch Consumer<br/>(audit.events)"]
+        AUDIT_BATCH_DB["JDBC Batch INSERT<br/>(audit_log, batch=1000)"]
+        AUDIT_METRICS["Micrometer Metrics<br/>Exporter"]
+        AUDIT_ARCHIVE["Partition Archival<br/>Scheduler"]
+    end
+
+    K_AUDIT -->|"Kafka Consumer"| AUDIT_CONSUMER
+    AUDIT_CONSUMER --> AUDIT_BATCH_DB
+    AUDIT_CONSUMER --> AUDIT_METRICS
+
+    %% Audit publish (from all services, async, non-blocking)
+    ING_ENRICH -.->|"Kafka Producer<br/>(async, fire-and-forget)"| K_AUDIT
+    PROC_BATCH_DB -.->|"Kafka Producer (async)"| K_AUDIT
+    DISP_BATCH_DB -.->|"Kafka Producer (async)"| K_AUDIT
+    RETRY_DECIDE -.->|"Kafka Producer (async)"| K_AUDIT
+
+    %% ═══════════════════════════════════════
+    %% VENDOR APIs
+    %% ═══════════════════════════════════════
+    subgraph VENDORS ["🌐 VENDOR APIs"]
+        V_TWILIO["Twilio<br/>(SMS, Voice)"]
+        V_SENDGRID["SendGrid<br/>(Email)"]
+        V_FCM["Firebase FCM<br/>(Push)"]
+        V_CUSTOM["Custom Webhooks<br/>(HTTP POST)"]
+    end
+
+    VENDORS -->|"Async Callback<br/>HTTPS Webhook"| CALLBACK_EP["Callback Endpoint<br/>(in Processor Service)"]
+    CALLBACK_EP -->|"JDBC update"| ORACLE
+
+    %% ═══════════════════════════════════════
+    %% DATA STORES
+    %% ═══════════════════════════════════════
+    subgraph DATASTORES ["💾 DATA STORES"]
+        ORACLE[("🗄️ Oracle DB<br/>(RAC / Data Guard)<br/>─────────────<br/>events<br/>event_dispatches<br/>event_retries<br/>audit_log<br/>vendor_callbacks<br/>upstream_config<br/>channel_vendor_config<br/>dedup_cache")]
+        REDIS[("⚡ Redis Cluster<br/>─────────────<br/>Dedup bloom filter<br/>Config cache (60s TTL)<br/>Rate limit counters")]
+    end
+
+    %% DB connections (labelled with protocol)
+    ING_DEDUP -->|"Redis GET/SET<br/>(Lettuce, async)"| REDIS
+    ING_DEDUP -->|"JDBC SELECT<br/>(dedup fallback)"| ORACLE
+    PROC_BATCH_DB -->|"JDBC Batch INSERT<br/>(HikariCP, pool=20)"| ORACLE
+    DISP_BATCH_DB -->|"JDBC Batch INSERT<br/>(HikariCP, pool=30)"| ORACLE
+    AUDIT_BATCH_DB -->|"JDBC Batch INSERT<br/>(HikariCP, pool=15)"| ORACLE
+    AUDIT_ARCHIVE -->|"Oracle DBMS_SCHEDULER<br/>(partition detach)"| ORACLE
+    RETRY_DECIDE -->|"JDBC INSERT<br/>(event_retries)"| ORACLE
+
+    PROC_FACTORY -->|"Redis GET<br/>(config cache)"| REDIS
+    DISP_FACTORY -->|"Redis GET<br/>(vendor config cache)"| REDIS
+
+    %% ═══════════════════════════════════════
+    %% OBSERVABILITY
+    %% ═══════════════════════════════════════
+    subgraph OBSERVABILITY ["📊 OBSERVABILITY"]
+        PROMETHEUS["Prometheus<br/>(metrics scrape)"]
+        GRAFANA["Grafana<br/>(dashboards)"]
+        ELK["ELK Stack<br/>(log aggregation)"]
+        PAGERDUTY["PagerDuty / Slack<br/>(alerts)"]
+    end
+
+    AUDIT_METRICS -->|"HTTP /actuator/prometheus"| PROMETHEUS
+    PROMETHEUS --> GRAFANA
+    PROMETHEUS -->|"AlertManager rules"| PAGERDUTY
+    K_DLT -->|"Alert on DLT publish"| PAGERDUTY
+
+    ING_SVC -->|"Fluentd sidecar<br/>JSON logs"| ELK
+    PROC_SVC -->|"Fluentd sidecar"| ELK
+    AUDIT_SVC -->|"Fluentd sidecar"| ELK
+
+    %% ═══════════════════════════════════════
+    %% OCP PLATFORM
+    %% ═══════════════════════════════════════
+    subgraph OCP ["☸️ OPENSHIFT CLUSTER"]
+        ING_SVC
+        PROC_SVC
+        AUDIT_SVC
+    end
+
+    %% ═══════════════════════════════════════
+    %% STYLING
+    %% ═══════════════════════════════════════
+    classDef upstream fill:#E3F2FD,stroke:#1565C0,color:#0D47A1
+    classDef kafka fill:#FFF3E0,stroke:#E65100,color:#BF360C
+    classDef service fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
+    classDef datastore fill:#F3E5F5,stroke:#6A1B9A,color:#4A148C
+    classDef vendor fill:#FFF8E1,stroke:#F9A825,color:#F57F17
+    classDef observability fill:#ECEFF1,stroke:#546E7A,color:#263238
+
+    class UP_BANK,UP_INS,UP_OTP,UP_MKT,UP_LOG upstream
+    class K_IN,K_PROC,K_DISP_SMS,K_DISP_EMAIL,K_DISP_OTP,K_DISP_VOICE,K_DISP_WH,K_DISP_PUSH,K_RETRY,K_DLT,K_AUDIT kafka
+    class ORACLE,REDIS datastore
+    class V_TWILIO,V_SENDGRID,V_FCM,V_CUSTOM vendor
+    class PROMETHEUS,GRAFANA,ELK,PAGERDUTY observability

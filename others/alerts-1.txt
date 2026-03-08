@@ -1,0 +1,565 @@
+Highlevel:
+
+                Upstream Systems (5-6)
+                         │
+                         │
+                    Kafka Topics
+                         │
+                         ▼
+                Ingestion Microservices
+             (Validation + Normalization)
+                         │
+                         ▼
+                Processing/Orchestration
+            (Rules, routing, enrichment)
+                         │
+                         ▼
+                  Dispatch Services
+        (SMS / Email / OTP / Push / Voice)
+                         │
+                         ▼
+              External Notification Providers
+                         │
+                         ▼
+                     Status Events
+                         │
+                         ▼
+                    Audit Service
+
+
+
+Mermaid -1:
+
+flowchart LR
+
+%% =========================
+%% Upstream Systems
+%% =========================
+
+subgraph UPSTREAM["Upstream Systems"]
+A1["Banking System"]
+A2["CRM System"]
+A3["Fraud System"]
+A4["Security Alerts"]
+A5["Payment Gateway"]
+end
+
+%% =========================
+%% Kafka Ingestion
+%% =========================
+
+subgraph KAFKA_IN["Kafka Inbound Topics"]
+K1["upstream.bank.alerts"]
+K2["upstream.crm.events"]
+K3["upstream.security.events"]
+end
+
+A1 --> K1
+A2 --> K2
+A3 --> K3
+A4 --> K3
+A5 --> K1
+
+
+%% =========================
+%% Ingestion Layer
+%% =========================
+
+subgraph INGESTION["Ingestion Service"]
+B1["Schema Validation"]
+B2["Message Normalization"]
+B3["Idempotency Check (Redis)"]
+B4["Canonical Event Builder"]
+end
+
+K1 --> B1
+K2 --> B1
+K3 --> B1
+
+B1 --> B2
+B2 --> B3
+B3 --> B4
+
+
+%% =========================
+%% Normalized Topic
+%% =========================
+
+subgraph KAFKA_CORE["Core Kafka Topics"]
+C1["notification.normalized"]
+end
+
+B4 --> C1
+
+
+%% =========================
+%% Orchestrator
+%% =========================
+
+subgraph ORCHESTRATOR["Notification Orchestrator Service"]
+D1["Business Rules Engine"]
+D2["Template Resolver (Redis Cache)"]
+D3["Channel Routing"]
+D4["Enrichment / Transformation"]
+end
+
+C1 --> D1
+D1 --> D2
+D2 --> D3
+D3 --> D4
+
+
+%% =========================
+%% Channel Topics
+%% =========================
+
+subgraph KAFKA_CHANNELS["Channel Topics"]
+E1["notification.sms"]
+E2["notification.email"]
+E3["notification.push"]
+E4["notification.voice"]
+E5["notification.otp"]
+end
+
+D4 --> E1
+D4 --> E2
+D4 --> E3
+D4 --> E4
+D4 --> E5
+
+
+%% =========================
+%% Dispatch Services
+%% =========================
+
+subgraph DISPATCH["Dispatcher Services"]
+
+subgraph SMS["SMS Dispatcher"]
+F1["Rate Limiter (Redis)"]
+F2["Provider Adapter"]
+end
+
+subgraph EMAIL["Email Dispatcher"]
+F3["SMTP / Provider"]
+end
+
+subgraph PUSH["Push Dispatcher"]
+F4["Push Gateway"]
+end
+
+end
+
+
+E1 --> F1
+F1 --> F2
+
+E2 --> F3
+E3 --> F4
+
+
+%% =========================
+%% External Providers
+%% =========================
+
+subgraph PROVIDERS["External Providers"]
+G1["SMS Provider"]
+G2["Email Provider"]
+G3["Push Gateway"]
+end
+
+F2 --> G1
+F3 --> G2
+F4 --> G3
+
+
+%% =========================
+%% Status Events
+%% =========================
+
+subgraph STATUS["Status Topics"]
+H1["notification.delivery.status"]
+H2["notification.failed"]
+end
+
+G1 --> H1
+G2 --> H1
+G3 --> H1
+
+
+%% =========================
+%% Audit Service
+%% =========================
+
+subgraph AUDIT["Audit & Tracking"]
+I1["Audit Service"]
+I2["Oracle DB"]
+end
+
+H1 --> I1
+H2 --> I1
+I1 --> I2
+
+
+%% =========================
+%% Retry Topics
+%% =========================
+
+subgraph RETRY["Retry & DLQ Topics"]
+R1["sms.retry.1"]
+R2["sms.retry.2"]
+R3["sms.dlq"]
+end
+
+F2 -->|Retryable Failure| R1
+R1 --> R2
+R2 --> R3
+
+
+Mermaid -2:
+
+sequenceDiagram
+autonumber
+
+participant US as Upstream System
+participant KIN as Kafka Inbound Topic
+participant ING as Ingestion Service
+participant REDIS as Redis (Idempotency)
+participant KNORM as Kafka notification.normalized
+participant ORCH as Notification Orchestrator
+participant CACHE as Redis Template Cache
+participant KCHAN as Kafka Channel Topic
+participant DISP as Channel Dispatcher
+participant PROVIDER as External Provider
+participant KSTATUS as Kafka Delivery Status
+participant AUDIT as Audit Service
+participant DB as Oracle DB
+participant RETRY1 as Retry Topic 1
+participant RETRY2 as Retry Topic 2
+participant DLQ as Dead Letter Queue
+
+
+US ->> KIN: Publish Message
+
+KIN ->> ING: Consume Message
+
+ING ->> ING: Schema Validation
+alt Invalid Schema
+    ING ->> DLQ: Send to DLQ (N100 Invalid Schema)
+end
+
+ING ->> ING: Required Fields Check
+alt Missing Fields
+    ING ->> DLQ: Send to DLQ (N101 Required Field Missing)
+end
+
+ING ->> ING: Validate Source System
+alt Unsupported Source
+    ING ->> DLQ: Send to DLQ (N102 Unsupported Source)
+end
+
+ING ->> REDIS: Check Idempotency(messageId)
+
+alt Duplicate Message
+    ING -->> ING: Skip Processing (N104 Duplicate)
+end
+
+ING ->> ING: Normalize Message
+
+ING ->> KNORM: Publish Canonical Notification Event
+
+
+KNORM ->> ORCH: Consume Normalized Event
+
+ORCH ->> ORCH: Apply Business Rules
+
+alt Business Rule Failure
+    ORCH ->> DLQ: Send to DLQ (N203 Business Rule Failure)
+end
+
+ORCH ->> CACHE: Fetch Template
+
+alt Template Missing
+    ORCH ->> DLQ: Send to DLQ (N200 Template Not Found)
+end
+
+ORCH ->> ORCH: Determine Channel Routing
+
+alt Invalid Channel Mapping
+    ORCH ->> DLQ: Send to DLQ (N201 Channel Mapping Error)
+end
+
+ORCH ->> ORCH: Enrich Payload
+
+alt Missing Enrichment Data
+    ORCH ->> DLQ: Send to DLQ (N204 Enrichment Missing)
+end
+
+ORCH ->> KCHAN: Publish Channel Event
+
+
+KCHAN ->> DISP: Consume Channel Message
+
+DISP ->> DISP: Validate Destination
+
+alt Invalid Phone/Email
+    DISP ->> DLQ: Send to DLQ (N303 Invalid Destination)
+end
+
+DISP ->> DISP: Rate Limit Check
+
+alt Rate Limit Exceeded
+    DISP ->> RETRY1: Retry (N301 Rate Limit)
+end
+
+DISP ->> PROVIDER: Send Notification
+
+alt Provider Timeout
+    DISP ->> RETRY1: Retry (N302 Provider Timeout)
+end
+
+alt Provider Temporary Failure
+    DISP ->> RETRY1: Retry (N300 Provider Failure)
+end
+
+alt Authentication Failure
+    DISP ->> DLQ: Send to DLQ (N304 Provider Auth Failure)
+end
+
+PROVIDER -->> DISP: Delivery Response
+
+
+alt Delivery Failed
+    DISP ->> RETRY2: Retry (N400 Delivery Failure)
+end
+
+alt Message Expired (OTP)
+    DISP ->> DLQ: Send to DLQ (N402 Message Expired)
+end
+
+DISP ->> KSTATUS: Publish Delivery Status
+
+
+KSTATUS ->> AUDIT: Consume Status Event
+
+AUDIT ->> DB: Persist Notification Status
+
+AUDIT -->> AUDIT: Update Metrics / Logs
+
+
+
+Mermaid -3:
+
+flowchart TB
+
+subgraph Kafka
+A["Kafka Consumer"]
+end
+
+subgraph Core_Framework["Notification Processing Framework"]
+B["Message Receiver"]
+C["Schema Validator"]
+D["Idempotency Check (Redis)"]
+E["Canonical Message Builder"]
+F["Processing Pipeline"]
+end
+
+subgraph Strategy_Layer["Pluggable Business Logic"]
+G["Processor Factory"]
+
+H["BankAlertProcessor"]
+I["CRMEventProcessor"]
+J["FraudAlertProcessor"]
+K["FutureProcessor (New Upstream)"]
+end
+
+subgraph Orchestration
+L["Template Resolver (Redis Cache)"]
+M["Channel Router"]
+N["Channel Publisher"]
+end
+
+subgraph Kafka_Out
+O["notification.sms"]
+P["notification.email"]
+Q["notification.push"]
+R["notification.voice"]
+end
+
+
+A --> B
+B --> C
+C --> D
+D --> E
+E --> F
+
+F --> G
+
+G --> H
+G --> I
+G --> J
+G --> K
+
+H --> L
+I --> L
+J --> L
+K --> L
+
+L --> M
+M --> N
+
+N --> O
+N --> P
+N --> Q
+N --> R
+
+
+Mermaid -4:
+
+flowchart LR
+
+A["Kafka Consumer"]
+B["Validation"]
+C["Idempotency"]
+D["Canonical Builder"]
+E["Processor Factory"]
+F["Business Processor"]
+G["Template Resolver"]
+H["Channel Router"]
+I["Kafka Publisher"]
+
+A --> B
+B --> C
+C --> D
+D --> E
+E --> F
+F --> G
+G --> H
+H --> I
+
+
+Mermaid -5:
+
+flowchart LR
+
+subgraph KafkaCluster["Kafka Cluster"]
+K1["Inbound Topics (200+ partitions)"]
+K2["notification.normalized"]
+K3["Channel Topics"]
+end
+
+subgraph ConsumerLayer["Kafka Consumer Layer"]
+C1["Consumer Group"]
+C2["Partition Worker Pool"]
+end
+
+subgraph ProcessingEngine["Parallel Processing Engine"]
+P1["Validation Stage"]
+P2["Idempotency Check (Redis)"]
+P3["Canonical Message Builder"]
+P4["Processor Factory"]
+P5["Business Processor (Strategy)"]
+end
+
+subgraph Orchestration["Orchestration Layer"]
+O1["Template Resolver (Redis Cache)"]
+O2["Channel Router"]
+O3["Message Enrichment"]
+end
+
+subgraph AsyncPublishing["Async Event Publisher"]
+AP1["Async Publisher Queue"]
+AP2["Batch Kafka Producer"]
+end
+
+subgraph ChannelDispatch["Dispatcher Services"]
+D1["SMS Dispatcher"]
+D2["Email Dispatcher"]
+D3["Push Dispatcher"]
+end
+
+subgraph ProviderLayer["External Providers"]
+PR1["SMS Gateway"]
+PR2["Email Provider"]
+PR3["Push Gateway"]
+end
+
+subgraph Infra["Infrastructure"]
+R1["Redis Cluster"]
+DB1["Oracle DB (Audit + Status)"]
+end
+
+
+K1 --> C1
+C1 --> C2
+
+C2 --> P1
+P1 --> P2
+P2 --> P3
+P3 --> P4
+P4 --> P5
+
+P5 --> O1
+O1 --> O2
+O2 --> O3
+
+O3 --> AP1
+AP1 --> AP2
+
+AP2 --> K3
+
+K3 --> D1
+K3 --> D2
+K3 --> D3
+
+D1 --> PR1
+D2 --> PR2
+D3 --> PR3
+
+D1 --> DB1
+D2 --> DB1
+D3 --> DB1
+
+P2 --> R1
+O1 --> R1
+D1 --> R1
+
+
+Mermaid -6:
+
+flowchart LR
+
+A["Kafka Record"]
+B["Validation"]
+C["Idempotency (Redis)"]
+D["Canonical Builder"]
+E["Processor Factory"]
+F["Business Processor"]
+G["Template Resolver"]
+H["Channel Router"]
+I["Async Publisher"]
+
+A --> B
+B --> C
+C --> D
+D --> E
+E --> F
+F --> G
+G --> H
+H --> I
+
+
+Mermaid -7:
+
+flowchart LR
+
+A["notification.sms"]
+B["retry.1 (5s)"]
+C["retry.2 (1min)"]
+D["retry.3 (5min)"]
+E["sms.dlq"]
+
+A -->|Failure| B
+B -->|Failure| C
+C -->|Failure| D
+D -->|Failure| E
+

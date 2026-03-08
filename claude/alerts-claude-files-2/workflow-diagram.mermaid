@@ -1,0 +1,173 @@
+---
+title: Event Processing Platform — End-to-End Message Flow
+---
+
+flowchart TD
+    %% ═══════════════════════════════════════
+    %% UPSTREAM SOURCES
+    %% ═══════════════════════════════════════
+    UP1[/"🏦 Banking<br/>Upstream"/]
+    UP2[/"🛡️ Insurance<br/>Upstream"/]
+    UP3[/"🔐 OTP Auth<br/>Upstream"/]
+    UP4[/"📢 Marketing<br/>Upstream"/]
+    UP5[/"🚚 Logistics<br/>Upstream"/]
+
+    UP1 & UP2 & UP3 & UP4 & UP5 -->|Produce| KI
+
+    %% ═══════════════════════════════════════
+    %% KAFKA INBOUND TOPICS
+    %% ═══════════════════════════════════════
+    KI["fa:fa-layer-group Kafka: inbound.* topics<br/>(10 partitions each, RF=3)"]
+
+    %% ═══════════════════════════════════════
+    %% INGESTION SERVICE
+    %% ═══════════════════════════════════════
+    KI -->|"Batch consume<br/>(500 records/poll)"| ING
+
+    subgraph INGESTION ["🔵 INGESTION SERVICE (Gateway)"]
+        direction TB
+        ING["Kafka Batch Listener<br/>concurrency=5, 2 pods"]
+        ING --> DESER["1. Deserialise JSON"]
+        DESER --> DEDUP["2. Dedup Check<br/>(Redis bloom → DB fallback)"]
+        DEDUP --> SCHEMA["3. Schema Validation<br/>(required fields, format)"]
+        SCHEMA --> ENRICH["4. Enrich Headers<br/>(correlationId, traceId, timestamp)"]
+        ENRICH --> BULK_ING["5. Batch Audit Publish"]
+    end
+
+    %% Ingestion errors
+    DESER -->|"ING_KAFKA_001<br/>Deserialisation failure"| DROP1["❌ Drop + Audit Log"]
+    DEDUP -->|"ING_DEDUP_001<br/>Duplicate detected"| DROP2["⏭️ Skip silently<br/>(audit logged)"]
+    SCHEMA -->|"ING_SCHEMA_001<br/>Missing required fields"| DROP3["❌ Drop + Audit Log"]
+    SCHEMA -->|"ING_SCHEMA_002<br/>Unknown upstream"| DROP3
+
+    BULK_ING -->|Produce| KP["fa:fa-layer-group Kafka: processing.events<br/>(10 partitions)"]
+
+    %% ═══════════════════════════════════════
+    %% PROCESSING SERVICE
+    %% ═══════════════════════════════════════
+    KP -->|"Batch consume"| PROC
+
+    subgraph PROCESSING ["🟢 PROCESSING SERVICE (Business Logic)"]
+        direction TB
+        PROC["Kafka Batch Listener"]
+        PROC --> RESOLVE["1. Resolve UpstreamProcessor<br/>(Factory pattern)"]
+        RESOLVE --> BVAL["2. Business Validation<br/>(upstream-specific rules)"]
+        BVAL --> NORM["3. Normalise Payload<br/>(canonical format)"]
+        NORM --> CHANRES["4. Resolve Channel(s)<br/>+ Assign Priority"]
+        CHANRES --> PERSIST["5. JDBC Batch INSERT<br/>(events table, batch=500)"]
+        PERSIST --> PUB_DISP["6. Publish to<br/>dispatch.&lt;channel&gt;"]
+    end
+
+    %% Processing errors
+    RESOLVE -->|"PRC_CONFIG_001<br/>No processor found"| FAIL_P1["❌ Non-retryable<br/>Audit + FAILED status"]
+    BVAL -->|"VAL_SCHEMA_001<br/>Business rule violation"| FAIL_P2["❌ Non-retryable<br/>Audit + FAILED status"]
+    BVAL -->|"VAL_SCHEMA_002<br/>Invalid recipient"| FAIL_P2
+    BVAL -->|"VAL_SCHEMA_004<br/>Message expired"| FAIL_P3["❌ EXPIRED status"]
+    PERSIST -->|"PRC_DB_001 / SYS_DB_001<br/>DB failure"| RETRY_PUB["♻️ Publish to<br/>retry.events"]
+
+    %% Dispatch topics
+    PUB_DISP --> KD_SMS["fa:fa-layer-group dispatch.sms"]
+    PUB_DISP --> KD_EMAIL["fa:fa-layer-group dispatch.email"]
+    PUB_DISP --> KD_OTP["fa:fa-layer-group dispatch.otp"]
+    PUB_DISP --> KD_VOICE["fa:fa-layer-group dispatch.voice"]
+    PUB_DISP --> KD_WH["fa:fa-layer-group dispatch.webhook"]
+    PUB_DISP --> KD_PUSH["fa:fa-layer-group dispatch.push"]
+
+    %% ═══════════════════════════════════════
+    %% DISPATCH SERVICE
+    %% ═══════════════════════════════════════
+    KD_SMS & KD_EMAIL & KD_OTP & KD_VOICE & KD_WH & KD_PUSH -->|"Batch consume"| DISP
+
+    subgraph DISPATCH ["🟠 DISPATCH SERVICE (Delivery)"]
+        direction TB
+        DISP["Kafka Batch Listener"]
+        DISP --> ADAPT["1. Resolve ChannelAdapter<br/>(Factory pattern)"]
+        ADAPT --> RLIMIT["2. Rate Limiter Check<br/>(Resilience4J per vendor)"]
+        RLIMIT --> CB["3. Circuit Breaker Check<br/>(Resilience4J per vendor)"]
+        CB --> ASYNC["4. Async Vendor API Call<br/>(bounded thread pool, 50 threads)"]
+        ASYNC --> RESULT["5. Batch INSERT<br/>(event_dispatches table)"]
+        RESULT --> STATUS["6. Update Event Status<br/>(DISPATCHED / FAILED)"]
+    end
+
+    %% Dispatch errors
+    RLIMIT -->|"DSP_RATE_001<br/>Rate limit exceeded"| RETRY_D["♻️ → retry.events"]
+    CB -->|"DSP_CIRCUIT_001<br/>Circuit breaker OPEN"| RETRY_D
+    ASYNC -->|"DSP_VENDOR_002<br/>Vendor 5xx error"| RETRY_D
+    ASYNC -->|"DSP_TIMEOUT_001<br/>Vendor timeout"| RETRY_D
+    ASYNC -->|"DSP_VENDOR_001<br/>Vendor 4xx error"| FAIL_D["❌ Non-retryable<br/>FAILED status"]
+    ASYNC -->|"DSP_AUTH_001<br/>Auth failure"| FAIL_D
+
+    STATUS -->|"Success"| DELIVERED["✅ DISPATCHED<br/>→ await vendor callback"]
+
+    %% ═══════════════════════════════════════
+    %% RETRY SERVICE (embedded in Dispatch)
+    %% ═══════════════════════════════════════
+    RETRY_D --> KR["fa:fa-layer-group Kafka: retry.events"]
+    RETRY_PUB --> KR
+
+    KR -->|"Consume"| RET
+
+    subgraph RETRY ["🔴 RETRY HANDLER"]
+        direction TB
+        RET["Retry Consumer"]
+        RET --> EXPCHK["1. Check if expired<br/>(expires_at < now?)"]
+        EXPCHK --> MAXCHK["2. Check retry count<br/>(retryCount < maxRetries?)"]
+        MAXCHK --> BACKOFF["3. Calculate delay<br/>(exponential backoff + jitter)"]
+        BACKOFF --> REBATCH["4. Batch INSERT<br/>(event_retries table)"]
+        REBATCH --> REDISPATCH["5. Re-publish to<br/>dispatch.&lt;channel&gt;"]
+    end
+
+    EXPCHK -->|"RTY_EXPIRED_001<br/>Message expired"| FAIL_R["❌ EXPIRED<br/>Audit logged"]
+    MAXCHK -->|"RTY_EXHAUSTED_001<br/>Max retries exceeded"| DLT
+
+    DLT["💀 Kafka: dlt.events<br/>(Dead Letter Topic)"]
+    DLT --> ALERT["🚨 Ops Alert<br/>(PagerDuty / Slack)"]
+
+    REDISPATCH -->|"Back to dispatch"| KD_SMS
+
+    %% ═══════════════════════════════════════
+    %% VENDOR CALLBACKS
+    %% ═══════════════════════════════════════
+    DELIVERED --> VCALL["📞 Vendor Callback<br/>(async delivery receipt)"]
+    VCALL -->|"Status: delivered"| FINAL_OK["✅ DELIVERED<br/>(final state)"]
+    VCALL -->|"Status: failed/bounced"| RETRY_D
+
+    %% ═══════════════════════════════════════
+    %% AUDIT (cross-cutting)
+    %% ═══════════════════════════════════════
+    subgraph AUDIT ["📋 AUDIT (Cross-Cutting)"]
+        direction LR
+        KA["Kafka: audit.events"]
+        KA --> AUDIT_BATCH["Batch INSERT<br/>(audit_log table,<br/>batch=1000)"]
+        AUDIT_BATCH --> METRICS["Micrometer Metrics<br/>→ Prometheus"]
+        AUDIT_BATCH --> ARCHIVE["Monthly Partition<br/>Archival Job"]
+    end
+
+    %% Audit connections (dashed = async, non-blocking)
+    BULK_ING -.->|"Async audit"| KA
+    PERSIST -.->|"Async audit"| KA
+    STATUS -.->|"Async audit"| KA
+    REBATCH -.->|"Async audit"| KA
+    DROP1 -.->|"Async audit"| KA
+    FAIL_P1 -.->|"Async audit"| KA
+    FAIL_D -.->|"Async audit"| KA
+    DLT -.->|"Async audit"| KA
+
+    %% ═══════════════════════════════════════
+    %% STYLING
+    %% ═══════════════════════════════════════
+    classDef upstream fill:#E3F2FD,stroke:#1565C0,color:#0D47A1
+    classDef kafka fill:#FFF3E0,stroke:#E65100,color:#BF360C
+    classDef success fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
+    classDef failure fill:#FFEBEE,stroke:#C62828,color:#B71C1C
+    classDef retry fill:#FFF8E1,stroke:#F9A825,color:#F57F17
+    classDef dlt fill:#F3E5F5,stroke:#6A1B9A,color:#4A148C
+    classDef audit fill:#ECEFF1,stroke:#546E7A,color:#263238
+
+    class UP1,UP2,UP3,UP4,UP5 upstream
+    class KI,KP,KD_SMS,KD_EMAIL,KD_OTP,KD_VOICE,KD_WH,KD_PUSH,KR,KA kafka
+    class DELIVERED,FINAL_OK success
+    class DROP1,DROP2,DROP3,FAIL_P1,FAIL_P2,FAIL_P3,FAIL_D,FAIL_R failure
+    class RETRY_D,RETRY_PUB,REDISPATCH retry
+    class DLT,ALERT dlt
+    class AUDIT_BATCH,METRICS,ARCHIVE audit

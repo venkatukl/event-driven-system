@@ -1,0 +1,171 @@
+# ═══════════════════════════════════════════════════════════
+# DISPATCH SERVICE — application.yml
+# ═══════════════════════════════════════════════════════════
+
+spring:
+  application:
+    name: dispatch-service
+
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+    consumer:
+      group-id: dispatch-group
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      max-poll-records: 200        # smaller batches for dispatch (vendor API latency)
+      fetch-min-bytes: 10000
+      fetch-max-wait-ms: 100
+      max-partition-fetch-bytes: 1048576
+      properties:
+        group.instance.id: ${HOSTNAME}
+        session.timeout.ms: 45000
+        heartbeat.interval.ms: 10000
+        max.poll.interval.ms: 600000   # longer for slow vendor calls
+        partition.assignment.strategy: org.apache.kafka.clients.consumer.CooperativeStickyAssignor
+
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      retries: 3
+      properties:
+        linger.ms: 5
+        compression.type: lz4
+        enable.idempotence: true
+      transaction-id-prefix: dispatch-tx-
+
+    listener:
+      type: batch
+      ack-mode: manual_immediate
+      concurrency: 12
+      shutdown-timeout: 25s
+
+  datasource:
+    url: ${ORACLE_JDBC_URL:jdbc:oracle:thin:@localhost:1521/XEPDB1}
+    username: ${ORACLE_USERNAME:platform_user}
+    password: ${ORACLE_PASSWORD:changeme}
+    driver-class-name: oracle.jdbc.OracleDriver
+    hikari:
+      maximum-pool-size: 30           # higher pool for dispatch DB writes
+      minimum-idle: 10
+      connection-timeout: 10000
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+# ── Resilience4J ──
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 100
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 10
+        slow-call-duration-threshold: 5s
+        slow-call-rate-threshold: 80
+        register-health-indicator: true
+    instances:
+      sms:
+        base-config: default
+      email:
+        base-config: default
+        slow-call-duration-threshold: 10s    # email vendors are slower
+      otp:
+        base-config: default
+        failure-rate-threshold: 30           # OTP is critical — open sooner
+        wait-duration-in-open-state: 15s
+      voice:
+        base-config: default
+        slow-call-duration-threshold: 15s    # voice calls are inherently slow
+      webhook:
+        base-config: default
+      push:
+        base-config: default
+
+  ratelimiter:
+    configs:
+      default:
+        limit-for-period: 500
+        limit-refresh-period: 1s
+        timeout-duration: 2s
+    instances:
+      sms:
+        base-config: default
+        limit-for-period: 500
+      email:
+        base-config: default
+        limit-for-period: 1000
+      otp:
+        base-config: default
+        limit-for-period: 2000               # OTP needs higher throughput
+      voice:
+        base-config: default
+        limit-for-period: 100                # voice is expensive/slow
+      webhook:
+        base-config: default
+        limit-for-period: 1000
+      push:
+        base-config: default
+        limit-for-period: 2000
+
+  bulkhead:
+    instances:
+      sms:
+        max-concurrent-calls: 50
+      email:
+        max-concurrent-calls: 100
+      otp:
+        max-concurrent-calls: 100
+      voice:
+        max-concurrent-calls: 20
+      webhook:
+        max-concurrent-calls: 80
+      push:
+        max-concurrent-calls: 100
+
+# ── Vendor Config ──
+vendor:
+  twilio:
+    account-sid: ${TWILIO_ACCOUNT_SID:AC_PLACEHOLDER}
+    api-url: https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json
+  sendgrid:
+    api-key: ${SENDGRID_API_KEY:SG_PLACEHOLDER}
+    api-url: https://api.sendgrid.com/v3/mail/send
+  fcm:
+    project-id: ${FCM_PROJECT_ID:project_placeholder}
+    api-url: https://fcm.googleapis.com/v1/projects/{project}/messages:send
+
+# ── Server ──
+server:
+  port: 8083
+  shutdown: graceful
+
+# ── Actuator ──
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,circuitbreakers,ratelimiters
+  endpoint:
+    health:
+      show-details: when_authorized
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+logging:
+  level:
+    root: INFO
+    com.platform: DEBUG
+    io.github.resilience4j: INFO
+    org.apache.kafka: WARN

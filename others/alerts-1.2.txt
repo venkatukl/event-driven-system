@@ -1,0 +1,165 @@
+
+@workspace
+
+Generate a sequence diagram for the alert processing flow starting from this Kafka consumer until dispatch.
+
+-----------------------------
+
+4. Step 1 — Identify All Message Entry Points
+
+Prompt Copilot:
+
+@workspace
+
+Scan the repository and list all message entry points including:
+
+- Kafka listeners
+- JMS listeners
+- RabbitMQ listeners
+- HTTP endpoints that receive alerts/messages
+
+For each entry point, show:
+
+1. class name
+2. method name
+3. annotation used (@KafkaListener, @JmsListener, etc)
+4. topic/queue name
+5. service method invoked
+
+This produces a consumer inventory.
+
+Example output:
+
+AlertKafkaConsumer.receiveAlert()
+   topic: alert-topic
+   calls: AlertProcessingService.processAlert()
+
+EmailAlertConsumer.handle()
+   topic: email-alerts
+   calls: EmailService.process()
+
+Now you know where flows start.
+
+5. Step 2 — Trace Processing Flow Per Consumer
+
+Once you find one consumer:
+
+Open it and ask:
+
+@workspace
+
+Trace the full call chain starting from this Kafka listener method.
+
+Show the sequence of services invoked until the final dispatch or output.
+
+Group the steps into these logical phases if possible:
+
+- validation
+- transformation
+- enrichment
+- rule evaluation
+- dispatch/output
+
+This will reconstruct the pipeline.
+
+6. Step 3 — Generate a Pipeline Map
+
+Now ask Copilot to convert the trace into a flow diagram.
+
+Prompt:
+
+@workspace
+
+Based on the call chain of this consumer, generate a processing pipeline.
+
+Format it as:
+
+Consumer
+  -> Validation
+  -> Transformation
+  -> Enrichment
+  -> Business Rules
+  -> Dispatch
+
+Also list the classes responsible for each step.
+7. Step 4 — Extract Shared Components
+
+Legacy systems often reuse components.
+
+Prompt:
+
+@workspace
+
+Find shared components used across multiple message consumers.
+
+Examples:
+- validation services
+- enrichment services
+- rule engines
+- dispatchers
+
+List which consumers use each component.
+
+This reveals coupling and reuse.
+
+8. Step 5 — Detect Hidden Rules Engines
+
+Many monoliths hide logic in:
+
+RuleEngine
+Strategy pattern
+Factory pattern
+if(type == ...)
+switch(alertType)
+
+Ask Copilot:
+
+@workspace
+
+Search the codebase for rule engines, strategy patterns, or conditional logic that changes behavior based on message type or alert type.
+
+List the classes responsible for dynamic routing or rule evaluation.
+9. Step 6 — Generate a Consumer Capability Matrix
+
+Final prompt:
+
+@workspace
+
+Create a table of all message consumers in this repository.
+
+Columns:
+
+Consumer
+Topic/Queue
+Validation logic
+Transformation
+Enrichment
+Rule Engine
+Dispatch target
+
+Summarize which classes implement each step.
+
+This gives you a complete architecture map.
+
+10. VERY Powerful Prompt (Use This)
+
+This is the best starting prompt for your use case:
+
+@workspace
+
+I am analyzing a legacy monolith that processes alerts/messages from multiple upstream systems.
+
+Please do the following:
+
+1. Identify all message consumer entry points (Kafka, JMS, RabbitMQ, HTTP).
+2. For each consumer, trace the processing pipeline starting from the listener method.
+3. Break the pipeline into logical stages:
+   - validation
+   - transformation
+   - enrichment
+   - rule processing
+   - dispatch/output
+4. List the classes responsible for each stage.
+5. Highlight shared services used by multiple consumers.
+
+Produce the results as a structured summary for each upstream system.

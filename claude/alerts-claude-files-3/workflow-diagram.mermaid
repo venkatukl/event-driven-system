@@ -1,0 +1,194 @@
+---
+title: Event Processing Platform — Message Lifecycle (Single Message Workflow)
+---
+
+flowchart TD
+    START(["📨 Upstream publishes message<br/>to inbound.&lt;upstream&gt; topic"])
+
+    START --> DESER
+
+    %% ═══════════════════════════════════════
+    %% INGESTION PHASE
+    %% ═══════════════════════════════════════
+    subgraph PHASE_ING ["Phase 1: INGESTION"]
+        direction TB
+        DESER["Deserialise JSON<br/><i>from Kafka batch - 500 records</i>"]
+        DESER -->|"Success"| DEDUP_REDIS
+        DESER -->|"ING_KAFKA_001"| ERR_DESER["DROP message<br/>Log and Audit"]
+
+        DEDUP_REDIS{"Redis: key exists?<br/><i>GET dedup:upstream:msgId</i>"}
+        DEDUP_REDIS -->|"Cache HIT"| DEDUP_CONFIRM["SKIP<br/>ING_DEDUP_001"]
+        DEDUP_REDIS -->|"Cache MISS"| DEDUP_DB
+        DEDUP_REDIS -->|"Redis DOWN<br/>SYS_REDIS_001"| DEDUP_DB
+
+        DEDUP_DB{"Oracle: row exists?<br/><i>SELECT FROM dedup_cache</i>"}
+        DEDUP_DB -->|"Exists"| DEDUP_CONFIRM
+        DEDUP_DB -->|"Not found"| SCHEMA_VAL
+
+        SCHEMA_VAL["Schema Validation<br/><i>required fields, format checks</i>"]
+        SCHEMA_VAL -->|"Valid"| ENRICH
+        SCHEMA_VAL -->|"ING_SCHEMA_001<br/>Missing fields"| ERR_SCHEMA["DROP message<br/>Log and Audit"]
+        SCHEMA_VAL -->|"ING_SCHEMA_002<br/>Unknown upstream"| ERR_SCHEMA
+
+        ENRICH["Enrich Headers<br/><i>correlationId, traceId, timestamp</i>"]
+        ENRICH --> MARK_DEDUP
+
+        MARK_DEDUP["Mark seen:<br/><i>Redis SET + DB INSERT dedup_cache</i>"]
+    end
+
+    MARK_DEDUP -->|"Kafka Producer to<br/>processing.events"| PROC_START
+
+    %% ═══════════════════════════════════════
+    %% PROCESSING PHASE
+    %% ═══════════════════════════════════════
+    subgraph PHASE_PROC ["Phase 2: PROCESSING"]
+        direction TB
+        PROC_START["Consume from<br/>processing.events"]
+        PROC_START --> RESOLVE_PROC
+
+        RESOLVE_PROC{"UpstreamProcessorFactory<br/><i>resolve by upstream_id</i>"}
+        RESOLVE_PROC -->|"Found"| BIZ_VAL
+        RESOLVE_PROC -->|"PRC_CONFIG_001<br/>No processor"| ERR_CONFIG["FAILED status<br/>Non-retryable"]
+
+        BIZ_VAL["Business Validation<br/><i>upstream-specific rules</i>"]
+        BIZ_VAL -->|"Valid"| NORMALISE
+        BIZ_VAL -->|"VAL_SCHEMA_001<br/>Rule violation"| ERR_BIZ["FAILED status"]
+        BIZ_VAL -->|"VAL_SCHEMA_002<br/>Bad recipient"| ERR_BIZ
+        BIZ_VAL -->|"VAL_SCHEMA_003<br/>Template missing"| ERR_BIZ
+
+        NORMALISE["Normalise Payload<br/><i>canonical format, resolve channel</i>"]
+        NORMALISE -->|"Success"| EXPIRY_CHK
+        NORMALISE -->|"PRC_TRANSFORM_001"| ERR_NORM["FAILED status"]
+
+        EXPIRY_CHK{"expires_at in past?"}
+        EXPIRY_CHK -->|"Not expired"| ASSIGN_PRI
+        EXPIRY_CHK -->|"VAL_SCHEMA_004<br/>Already expired"| ERR_EXPIRED["EXPIRED status"]
+
+        ASSIGN_PRI["Assign Priority<br/><i>from upstream_config + rules</i>"]
+        ASSIGN_PRI --> BATCH_INSERT
+
+        BATCH_INSERT["JDBC Batch INSERT<br/><i>Oracle: events table<br/>500 rows per batch, 1 DB round-trip</i>"]
+        BATCH_INSERT -->|"Success"| PUBLISH_DISPATCH
+        BATCH_INSERT -->|"PRC_DB_001 or SYS_DB_001<br/>DB failure"| RETRY_FROM_PROC["to retry.events<br/>retryable"]
+    end
+
+    PUBLISH_DISPATCH["Kafka Producer to<br/>dispatch channel topic"]
+
+    %% ═══════════════════════════════════════
+    %% DISPATCH PHASE
+    %% ═══════════════════════════════════════
+    PUBLISH_DISPATCH --> DISP_START
+
+    subgraph PHASE_DISP ["Phase 3: DISPATCH"]
+        direction TB
+        DISP_START["Consume from<br/>dispatch channel"]
+        DISP_START --> RESOLVE_ADAPT
+
+        RESOLVE_ADAPT["ChannelAdapterFactory<br/><i>resolve adapter by channel</i>"]
+        RESOLVE_ADAPT --> RATE_CHECK
+
+        RATE_CHECK{"Resilience4J RateLimiter<br/><i>permits available?</i>"}
+        RATE_CHECK -->|"Permitted"| CB_CHECK
+        RATE_CHECK -->|"DSP_RATE_001<br/>Rate limit hit"| RETRY_RATE["to retry.events"]
+
+        CB_CHECK{"Resilience4J CircuitBreaker<br/><i>CLOSED or HALF_OPEN?</i>"}
+        CB_CHECK -->|"CLOSED or HALF_OPEN"| VENDOR_CALL
+        CB_CHECK -->|"DSP_CIRCUIT_001<br/>Circuit OPEN"| RETRY_CB["to retry.events"]
+
+        VENDOR_CALL["Async Vendor API Call<br/><i>HTTPS REST, 50 thread pool<br/>timeout 5s configurable</i>"]
+        VENDOR_CALL -->|"2xx Success"| DISP_SUCCESS
+        VENDOR_CALL -->|"DSP_AUTH_001<br/>401 or 403"| ERR_AUTH["FAILED status<br/>Non-retryable"]
+        VENDOR_CALL -->|"DSP_VENDOR_001<br/>4xx Client Error"| ERR_CLIENT["FAILED status<br/>Non-retryable"]
+        VENDOR_CALL -->|"DSP_VENDOR_002<br/>5xx Server Error"| RETRY_5XX["to retry.events"]
+        VENDOR_CALL -->|"DSP_TIMEOUT_001<br/>Timeout"| RETRY_TMO["to retry.events"]
+        VENDOR_CALL -->|"DSP_VENDOR_003<br/>Unexpected response"| RETRY_UNK["to retry.events"]
+
+        DISP_SUCCESS["JDBC Batch INSERT<br/><i>Oracle: event_dispatches<br/>plus UPDATE events.status DISPATCHED</i>"]
+    end
+
+    DISP_SUCCESS --> AWAIT_CALLBACK
+
+    %% ═══════════════════════════════════════
+    %% VENDOR CALLBACK
+    %% ═══════════════════════════════════════
+    AWAIT_CALLBACK["Await Vendor Callback<br/><i>async HTTPS webhook</i>"]
+    AWAIT_CALLBACK -->|"delivered"| FINAL_OK["DELIVERED<br/><i>Final state</i>"]
+    AWAIT_CALLBACK -->|"failed or bounced"| RETRY_CALLBACK["to retry.events"]
+    AWAIT_CALLBACK -->|"No callback within TTL"| FINAL_OK
+
+    %% ═══════════════════════════════════════
+    %% RETRY PHASE
+    %% ═══════════════════════════════════════
+    RETRY_RATE & RETRY_CB & RETRY_5XX & RETRY_TMO & RETRY_UNK & RETRY_FROM_PROC & RETRY_CALLBACK --> RETRY_TOPIC
+
+    RETRY_TOPIC["Kafka: retry.events"]
+    RETRY_TOPIC --> RETRY_START
+
+    subgraph PHASE_RETRY ["Phase 4: RETRY"]
+        direction TB
+        RETRY_START["Consume from<br/>retry.events"]
+        RETRY_START --> RETRY_EXP_CHK
+
+        RETRY_EXP_CHK{"expires_at in past?"}
+        RETRY_EXP_CHK -->|"Not expired"| RETRY_MAX_CHK
+        RETRY_EXP_CHK -->|"RTY_EXPIRED_001"| RETRY_EXPIRED["EXPIRED status"]
+
+        RETRY_MAX_CHK{"retryCount under maxRetries?"}
+        RETRY_MAX_CHK -->|"Under limit"| CALC_DELAY
+        RETRY_MAX_CHK -->|"RTY_EXHAUSTED_001<br/>Max retries reached"| DLT_PUBLISH
+
+        CALC_DELAY["Calculate Backoff<br/><i>delay equals 5s times 2 to the attempt-1 times jitter<br/>Attempt 1: approx 5s<br/>Attempt 2: approx 10s<br/>Attempt 3: approx 20s</i>"]
+        CALC_DELAY --> RETRY_PERSIST
+
+        RETRY_PERSIST["JDBC INSERT<br/><i>Oracle: event_retries</i>"]
+        RETRY_PERSIST --> RETRY_REDISPATCH["Re-publish to<br/>dispatch channel topic"]
+    end
+
+    RETRY_REDISPATCH -->|"Back to dispatch"| DISP_START
+
+    DLT_PUBLISH["Kafka Producer to<br/>dlt.events<br/><i>status equals DLT</i>"]
+    DLT_PUBLISH --> DLT_ALERT["Ops Alert<br/><i>PagerDuty or Slack<br/>Manual investigation required</i>"]
+
+    %% ═══════════════════════════════════════
+    %% AUDIT (cross-cutting, always async)
+    %% ═══════════════════════════════════════
+    subgraph PHASE_AUDIT ["Cross-Cutting: AUDIT async and non-blocking"]
+        direction LR
+        AUDIT_TOPIC["Kafka: audit.events"]
+        AUDIT_BATCH["JDBC Batch INSERT<br/><i>Oracle: audit_log<br/>batch 1000</i>"]
+        AUDIT_TOPIC --> AUDIT_BATCH
+    end
+
+    %% Dashed lines are async audit publish and never block main flow
+    MARK_DEDUP -.->|"Audit"| AUDIT_TOPIC
+    ERR_DESER -.-> AUDIT_TOPIC
+    ERR_SCHEMA -.-> AUDIT_TOPIC
+    BATCH_INSERT -.-> AUDIT_TOPIC
+    ERR_BIZ -.-> AUDIT_TOPIC
+    DISP_SUCCESS -.-> AUDIT_TOPIC
+    ERR_AUTH -.-> AUDIT_TOPIC
+    ERR_CLIENT -.-> AUDIT_TOPIC
+    RETRY_PERSIST -.-> AUDIT_TOPIC
+    DLT_PUBLISH -.-> AUDIT_TOPIC
+
+    %% ═══════════════════════════════════════
+    %% TERMINAL STATES
+    %% ═══════════════════════════════════════
+    subgraph TERMINALS ["Terminal States"]
+        direction LR
+        FINAL_OK
+        T_FAILED["FAILED<br/><i>non-retryable error</i>"]
+        T_EXPIRED["EXPIRED<br/><i>TTL exceeded</i>"]
+        T_DLT["DLT<br/><i>retries exhausted</i>"]
+        T_SKIP["SKIPPED<br/><i>duplicate</i>"]
+    end
+
+    ERR_AUTH --> T_FAILED
+    ERR_CLIENT --> T_FAILED
+    ERR_BIZ --> T_FAILED
+    ERR_CONFIG --> T_FAILED
+    ERR_NORM --> T_FAILED
+    ERR_EXPIRED --> T_EXPIRED
+    RETRY_EXPIRED --> T_EXPIRED
+    DEDUP_CONFIRM --> T_SKIP
+    DLT_ALERT --> T_DLT

@@ -1,0 +1,275 @@
+1. First Build a “Consumer Inventory”
+
+Before asking Copilot anything complex, extract all entry points.
+
+Search the repo for:
+
+@KafkaListener
+@JmsListener
+@RabbitListener
+@Scheduled
+@RestController
+@Controller
+
+You can do this in VSCode search.
+
+Then ask Copilot Agent:
+
+@workspace
+
+List all classes in this repository that contain:
+
+- @KafkaListener
+- @JmsListener
+- @RabbitListener
+
+For each listener provide:
+- class name
+- method name
+- topic/queue name
+- service method invoked next
+
+You should get something like:
+
+AlertKafkaConsumer
+  topic: alerts.monitoring
+  method: receive()
+  calls: AlertProcessingService.process()
+
+EmailAlertConsumer
+  topic: alerts.email
+  calls: EmailAlertService.handle()
+
+This gives you the true upstream systems.
+
+2. Create a “Flow Extraction Template”
+
+This is the most effective Copilot prompt pattern.
+
+Open the consumer class and ask:
+
+@workspace
+
+Trace the full execution path starting from this Kafka listener method.
+
+Follow the service calls and describe the processing pipeline.
+
+Group the steps into logical phases if possible:
+
+1. validation
+2. transformation
+3. enrichment
+4. rule processing
+5. dispatch/output
+
+For each phase list the responsible classes and methods.
+
+Copilot Agent will start opening multiple files to trace calls.
+
+3. Force Copilot to Stay Inside One Flow
+
+Large monoliths confuse Copilot.
+
+Add scope:
+
+Limit the analysis to classes called directly or indirectly by this listener method.
+Ignore unrelated services.
+
+This dramatically improves accuracy.
+
+4. Generate a Processing Diagram
+
+Once Copilot finds the call chain, ask:
+
+Convert the processing flow into a sequence diagram.
+
+Format:
+
+Consumer
+ -> Validation
+ -> Transformation
+ -> Enrichment
+ -> Rule evaluation
+ -> Dispatch
+
+Example result:
+
+KafkaConsumer
+  -> AlertValidator
+  -> AlertTransformer
+  -> DeviceEnrichmentService
+  -> AlertRuleEngine
+  -> IncidentDispatcher
+
+Now you have a clean pipeline.
+
+5. Extract Shared Components
+
+Legacy monoliths often reuse services across consumers.
+
+Prompt:
+
+@workspace
+
+Identify services that are reused by multiple message consumers.
+
+Examples to check:
+- validation services
+- enrichment services
+- rule engines
+- dispatchers
+
+List which consumers use each component.
+
+This reveals tight coupling.
+
+6. Detect Business Rule Engines
+
+Many monoliths hide rules in:
+
+switch(alertType)
+if (eventType)
+StrategyFactory
+RuleEngine
+HandlerFactory
+
+Prompt Copilot:
+
+@workspace
+
+Search for code that changes processing behavior based on message type, alert type, or event type.
+
+Look for:
+- switch statements
+- strategy pattern
+- factory classes
+- rule engines
+
+List the classes responsible for this behavior.
+
+This usually reveals the real business core.
+
+7. Generate an Upstream Processing Matrix
+
+This is the final artifact you want.
+
+Prompt:
+
+@workspace
+
+Create a summary table of all message consumers in this repository.
+
+Columns:
+
+Consumer Class
+Topic/Queue
+Validation
+Transformation
+Enrichment
+Rule Processing
+Dispatch Target
+
+List the main classes responsible for each stage.
+
+Example output:
+
+Consumer	Topic	Validation	Enrichment	Rules	Dispatch
+AlertKafkaConsumer	alerts.monitoring	AlertValidator	DeviceEnrichment	AlertRuleEngine	IncidentDispatcher
+EmailAlertConsumer	alerts.email	EmailValidator	UserEnrichment	EmailRuleEngine	EmailSender
+
+This becomes your migration blueprint.
+
+8. Extremely Effective Copilot Prompt
+
+Use this once you understand the repo a bit:
+
+@workspace
+
+I am reverse engineering a legacy alert-processing monolith.
+
+Please analyze the repository and identify all message consumers.
+
+For each consumer:
+
+1. identify the entry point
+2. trace the processing pipeline
+3. group logic into stages:
+   - validation
+   - transformation
+   - enrichment
+   - rule processing
+   - dispatch
+
+4. list the classes implementing each stage
+
+Produce a structured architecture summary.
+9. One Trick That Dramatically Improves Copilot Results
+
+Instead of analyzing the whole repo, narrow the context.
+
+Example:
+
+@workspace alert-processing package
+
+or
+
+Analyze only classes under com.company.alerts.*
+
+This prevents Copilot from context overflow.
+
+10. Manual Trick That Speeds Everything Up
+
+Search for service orchestrators.
+
+Most monoliths have a method like:
+
+processAlert()
+handleEvent()
+executePipeline()
+processMessage()
+
+These are the true flow coordinators.
+
+Once you find them, ask Copilot:
+
+Explain the orchestration logic in this service method and list the stages of processing.
+11. What You Should Document While Doing This
+
+Create a small document like:
+
+Upstream Systems
+
+Monitoring System
+   Kafka Topic: alerts.monitoring
+   Flow:
+      Validation
+      Transformation
+      Enrichment
+      Rule Engine
+      Dispatch
+
+Email Alerts
+   Kafka Topic: alerts.email
+   Flow:
+      Validation
+      Enrichment
+      Dispatch
+
+This becomes the target architecture for microservices later.
+
+12. One Final Copilot Tip (Huge Time Saver)
+
+Use multi-step Agent prompts instead of one big prompt.
+
+Example workflow:
+
+1️⃣ find consumers
+2️⃣ trace call chain
+3️⃣ summarize pipeline
+4️⃣ extract shared services
+
+Copilot performs much better incrementally.
+
+✅ If you'd like, I can also show you a very powerful trick to identify the REAL message processing pipeline in 2–3 searches even in a 500k+ line Spring monolith.
+
+It works because almost all enterprise Java systems accidentally expose their architecture via 3 specific code patterns.

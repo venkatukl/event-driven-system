@@ -1,0 +1,130 @@
+# ═══════════════════════════════════════════════════════════
+# OpenShift Deployment — Ingestion Service
+# ═══════════════════════════════════════════════════════════
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingestion-service
+  labels:
+    app: ingestion-service
+    component: event-platform
+spec:
+  replicas: 3     # 3 pods × 12 threads = 36 consumer threads for 12 partitions per topic
+                   # Each pod gets 4 partitions via CooperativeStickyAssignor
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: ingestion-service
+  template:
+    metadata:
+      labels:
+        app: ingestion-service
+        component: event-platform
+    spec:
+      terminationGracePeriodSeconds: 60   # must exceed spring shutdown timeout (30s)
+      containers:
+        - name: ingestion-service
+          image: registry.internal/event-platform/ingestion-service:latest
+          ports:
+            - containerPort: 8081
+              name: http
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "prod"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: event-platform-config
+                  key: kafka.bootstrap.servers
+            - name: ORACLE_JDBC_URL
+              valueFrom:
+                secretKeyRef:
+                  name: event-platform-db
+                  key: jdbc-url
+            - name: ORACLE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: event-platform-db
+                  key: username
+            - name: ORACLE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: event-platform-db
+                  key: password
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: event-platform-config
+                  key: redis.host
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: event-platform-redis
+                  key: password
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8081
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 10"]   # allow LB to drain connections
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingestion-service
+spec:
+  selector:
+    app: ingestion-service
+  ports:
+    - port: 8081
+      targetPort: 8081
+      name: http
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ingestion-service-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ingestion-service
+  minReplicas: 3
+  maxReplicas: 12     # max 12 pods = 1 pod per partition per topic
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Pods
+      pods:
+        metric:
+          name: kafka_consumer_lag
+        target:
+          type: AverageValue
+          averageValue: "5000"    # scale up when lag > 5K per pod
