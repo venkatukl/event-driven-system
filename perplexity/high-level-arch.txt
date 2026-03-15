@@ -1,0 +1,107 @@
+flowchart TB
+    %% Styles
+    classDef upstream fill:#e1f5fe,stroke:#01579b,stroke-width:2px,color:#000
+    classDef kafka fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#000
+    classDef ms fill:#f3e5f5,stroke:#4a148c,stroke-width:2px,color:#000
+    classDef infra fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px,color:#000
+    classDef providers fill:#fff8e1,stroke:#f57c00,stroke-width:2px,color:#000
+
+    %% LAYERS
+    subgraph L1["🟦 Upstream Producers"]
+        direction LR
+        UPA[Upstream System A]
+        UPB[Upstream System B]:::upstream
+        UPC[Upstream System C]:::upstream
+        UPD[Upstream System D]:::upstream
+        UPE[Upstream System E]:::upstream
+        UPF[Upstream System F]:::upstream
+    end
+
+    subgraph L2["🟧 Kafka Messaging Layer"]
+        direction TB
+        KRAW[(📨 alerts.system*.input)]
+        KDISP[(📨 alerts.dispatch)]:::kafka
+        KAUDIT[(📋 alerts.audit)]:::kafka
+        KRETRY[(🔄 alerts.retry.*)]:::kafka
+        KDLQ[(⚠️ alerts.dlq)]:::kafka
+    end
+
+    subgraph L3["🟣 Microservices on OCP"]
+        direction LR
+        subgraph ORCH["Alert Orchestrator Service"]
+            OLISTEN[👂 Kafka Consumers<br/>upstream topics]
+            ORULES[⚙️ Business Rules<br/>Enrichment]
+            OPUB[📤 Publish Events]
+        end
+
+        subgraph DISP["Notification Dispatcher Service<br/>Auto-scaled"]
+            DLISTEN[👂 Kafka Consumers<br/>dispatch + retry]
+            DCHAN[🔀 Per-Channel Handlers<br/>SMS/Email/OTP/Voice/Push]
+            DRES[🛡️ Resilience4J<br/>Retry/CB/Bulkhead]
+            DPUB[📤 Audit/Retry/DLQ]
+        end
+
+        subgraph AUDITMS["Audit & DLQ Processor"]
+            ALISTEN[👂 Kafka Consumers<br/>audit + dlq]
+            APROC[💾 Persist Audit<br/>Reprocessing APIs]
+        end
+    end
+
+    subgraph L4["🟢 Persistence & Infrastructure"]
+        direction LR
+        ORADB[(🗄️ Oracle DB<br/>ALERT, AUDIT, DLQ)]:::infra
+        REDIS[(📦 Redis Cache<br/>Templates/Preferences)]:::infra
+        OBS[(📊 Observability<br/>Metrics/Logs/Traces)]:::infra
+        OCP[(☁️ OpenShift<br/>Deployments/Autoscaling)]:::infra
+    end
+
+    subgraph L5["🟠 External Providers"]
+        direction LR
+        PSMS[SMS Gateway]:::providers
+        PEMAIL[Email Provider]:::providers
+        PVOICE[Voice/IVR]:::providers
+        POTP[OTP Service]:::providers
+        PPUSH[Push/FCM/APNs]:::providers
+    end
+
+    %% FLOWS
+    UPA -->|systemA.input| KRAW
+    UPB -->|systemB.input| KRAW
+    UPC -->|systemC.input| KRAW
+    UPD -.->|...| KRAW
+    UPE -.->|...| KRAW
+    UPF -.->|...| KRAW
+
+    KRAW --> OLISTEN
+    OLISTEN --> ORULES
+    ORULES -->|Oracle/Redis| ORADB
+    ORULES -->|Redis| REDIS
+    ORULES --> OPUB
+    OPUB --> KDISP
+    OPUB --> KAUDIT
+
+    KDISP --> DLISTEN
+    KRETRY --> DLISTEN
+    DLISTEN --> DCHAN
+    DCHAN --> DRES
+    DRES --> PSMS
+    DRES --> PEMAIL
+    DRES --> PVOICE
+    DRES --> POTP
+    DRES --> PPUSH
+
+    DRES --> DPUB
+    DPUB --> KAUDIT
+    DPUB --> KRETRY
+    DPUB --> KDLQ
+
+    KAUDIT --> ALISTEN
+    KDLQ --> ALISTEN
+    ALISTEN --> APROC
+    APROC --> ORADB
+
+    ORCH -.->|"Deployed on"| OCP
+    DISP -.->|"Auto-scaled"| OCP
+    AUDITMS -.->|"Deployed on"| OCP
+    ORCH -.->|"Metrics/Logs"| OBS
+    DISP -.->|"Metrics/Logs"| OBS

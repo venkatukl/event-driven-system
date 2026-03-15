@@ -1,0 +1,48 @@
+notification-platform/
+  pom.xml
+  README.md
+  .github/
+    copilot-instructions.md
+  docs/
+    architecture.md
+    kafka-topics.md (optional)
+    conventions.md (optional)
+
+  alert-orchestrator-service/
+    pom.xml
+    src/main/java/com/example/notifications/orchestrator/...
+    src/main/resources/application.yml
+
+  sms-dispatcher-service/
+    pom.xml
+    src/main/java/com/example/notifications/sms/...
+    src/main/resources/application.yml
+
+  email-dispatcher-service/
+    pom.xml
+    src/main/java/com/example/notifications/email/...
+    src/main/resources/application.yml
+
+  otp-dispatcher-service/
+    pom.xml
+    src/main/java/com/example/notifications/otp/...
+    src/main/resources/application.yml
+
+  voice-dispatcher-service/
+    pom.xml
+    src/main/java/com/example/notifications/voice/...
+    src/main/resources/application.yml
+
+  push-dispatcher-service/
+    pom.xml
+    src/main/java/com/example/notifications/push/...
+    src/main/resources/application.yml
+
+  audit-service/  (optional for later)
+    pom.xml
+    src/main/java/com/example/notifications/audit/...
+    src/main/resources/application.yml
+
+  common/         (shared DTOs, utils, maybe common Kafka config)
+    pom.xml
+    src/main/java/com/example/notifications/common/...

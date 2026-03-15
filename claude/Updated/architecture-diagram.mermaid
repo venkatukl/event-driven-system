@@ -1,0 +1,287 @@
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'primaryColor': '#E6F1FB',
+    'primaryTextColor': '#0C447C',
+    'primaryBorderColor': '#85B7EB',
+    'secondaryColor': '#E1F5EE',
+    'secondaryTextColor': '#085041',
+    'secondaryBorderColor': '#5DCAA5',
+    'tertiaryColor': '#FAEEDA',
+    'tertiaryTextColor': '#633806',
+    'tertiaryBorderColor': '#FAC775',
+    'lineColor': '#5F5E5A',
+    'fontSize': '14px',
+    'fontFamily': 'sans-serif'
+  }
+} }%%
+
+flowchart TB
+
+    %% ═══════════════════════════════════════════════════════
+    %% LAYER 0: UPSTREAM SOURCES
+    %% ═══════════════════════════════════════════════════════
+    subgraph UPSTREAM_LAYER["⬆ UPSTREAM LAYER — External Business Systems"]
+        direction LR
+        US1["Banking<br/>System"]
+        US2["Insurance<br/>System"]
+        US3["Cards<br/>System"]
+        US4["Loans<br/>System"]
+        USN["... +6 More<br/>Upstreams"]
+    end
+
+    %% ═══════════════════════════════════════════════════════
+    %% KAFKA: INBOUND TOPICS
+    %% ═══════════════════════════════════════════════════════
+    subgraph KAFKA_INBOUND["📨 Kafka — Inbound Topics"]
+        direction LR
+        KI1[/"inbound.banking"/]
+        KI2[/"inbound.insurance"/]
+        KI3[/"inbound.cards"/]
+        KI4[/"inbound.loans"/]
+        KIN[/"inbound.{upstream}"/]
+    end
+
+    %% ═══════════════════════════════════════════════════════
+    %% LAYER 1: INGESTION
+    %% ═══════════════════════════════════════════════════════
+    subgraph INGESTION_LAYER["🔽 INGESTION LAYER — ingestion-service (2 pods × concurrency=5)"]
+        direction LR
+        ING_LISTEN["Inbound Kafka<br/>Listener<br/>(batch 500/poll)"]
+        ING_DEDUP["Deduplication<br/>Service<br/>(Redis + DB two-tier)"]
+        ING_SCHEMA["Schema<br/>Validation"]
+        ING_ENRICH["Message<br/>Enrichment"]
+
+        ING_LISTEN --> ING_DEDUP --> ING_SCHEMA --> ING_ENRICH
+    end
+
+    %% ═══════════════════════════════════════════════════════
+    %% KAFKA: PROCESSING TOPIC
+    %% ═══════════════════════════════════════════════════════
+    KP[/"Kafka — processing.events"/]
+
+    %% ═══════════════════════════════════════════════════════
+    %% LAYER 2: PROCESSING
+    %% ═══════════════════════════════════════════════════════
+    subgraph PROCESSING_LAYER["⚙ PROCESSING LAYER — processing-service (3 pods × concurrency=5)"]
+        direction TB
+
+        subgraph PROC_PIPELINE["Processing Pipeline"]
+            direction LR
+            PROC_PRE["Pre-Processing<br/>Pipeline"]
+            PROC_UPSTREAM["Upstream-Specific<br/>Processor<br/>(Factory Pattern)"]
+            PROC_POST["Post-Processing<br/>Pipeline"]
+            PROC_PRE --> PROC_UPSTREAM --> PROC_POST
+        end
+
+        subgraph PROC_PERSIST["Persistence"]
+            direction LR
+            PROC_BATCH["JDBC Batch<br/>Writer<br/>(500 rows/batch)"]
+            PROC_OUTBOX["Outbox Table<br/>Writer<br/>(same transaction)"]
+            PROC_POLLER["Outbox Poller<br/>(publishes to Kafka)"]
+            PROC_BATCH ~~~ PROC_OUTBOX
+            PROC_OUTBOX --> PROC_POLLER
+        end
+
+        PROC_PIPELINE --> PROC_PERSIST
+    end
+
+    %% ═══════════════════════════════════════════════════════
+    %% KAFKA: DISPATCH TOPICS (PRIORITY TIERED)
+    %% ═══════════════════════════════════════════════════════
+    subgraph KAFKA_DISPATCH["📤 Kafka — Priority-Tiered Dispatch Topics"]
+        direction LR
+        KD_HIGH[/"dispatch.{channel}.high<br/>(5 threads, 50ms poll)"/]
+        KD_MED[/"dispatch.{channel}.medium<br/>(3 threads, 100ms poll)"/]
+        KD_LOW[/"dispatch.{channel}.low<br/>(2 threads, 200ms poll)"/]
+    end
+
+    %% ═══════════════════════════════════════════════════════
+    %% LAYER 3: DISPATCH
+    %% ═══════════════════════════════════════════════════════
+    subgraph DISPATCH_LAYER["📡 DISPATCH LAYER — dispatch-service (3–5 pods HPA × concurrency=5)"]
+        direction LR
+        DSP_CONSUMER["Dispatch<br/>Consumer"]
+        DSP_ASYNC["Async Thread<br/>Pool<br/>(50 threads)"]
+        DSP_R4J["Resilience4J<br/>Circuit Breaker<br/>Rate Limiter<br/>Bulkhead"]
+        DSP_ADAPTER["Channel<br/>Adapters<br/>(Factory)"]
+        DSP_BATCH["Batch DB<br/>Writer"]
+
+        DSP_CONSUMER --> DSP_ASYNC --> DSP_R4J --> DSP_ADAPTER
+        DSP_ASYNC --> DSP_BATCH
+    end
+
+    %% ═══════════════════════════════════════════════════════
+    %% VENDOR APIS (CHANNELS)
+    %% ═══════════════════════════════════════════════════════
+    subgraph VENDOR_LAYER["🌐 VENDOR LAYER — External Channel APIs"]
+        direction LR
+        V_SMS["SMS<br/>Vendor"]
+        V_EMAIL["Email<br/>Vendor"]
+        V_OTP["OTP<br/>Vendor"]
+        V_VOICE["Voice<br/>Vendor"]
+        V_WEBHOOK["Webhook<br/>Endpoint"]
+        V_PUSH["Push<br/>Vendor"]
+    end
+
+    %% ═══════════════════════════════════════════════════════
+    %% LAYER 4: RETRY (FEEDBACK LOOP)
+    %% ═══════════════════════════════════════════════════════
+    subgraph RETRY_LAYER["🔄 RETRY LAYER — retry-service (2 pods × concurrency=3)"]
+        direction LR
+        RTY_CONSUME["Retry<br/>Consumer"]
+        RTY_BACKOFF["Exponential<br/>Backoff<br/>(with jitter)"]
+        RTY_CHECK["Max Retry &<br/>Expiry Check"]
+        RTY_DLT["Dead Letter<br/>Topic (DLT)"]
+
+        RTY_CONSUME --> RTY_BACKOFF --> RTY_CHECK
+        RTY_CHECK -- "exhausted" --> RTY_DLT
+    end
+
+    KR[/"Kafka — retry.events"/]
+
+    %% ═══════════════════════════════════════════════════════
+    %% LAYER 5: AUDIT & OBSERVABILITY
+    %% ═══════════════════════════════════════════════════════
+    subgraph AUDIT_LAYER["📊 AUDIT LAYER — audit-service (2 pods × concurrency=5)"]
+        direction LR
+        AUD_CONSUME["Audit Event<br/>Consumer"]
+        AUD_BATCH["Batch INSERT<br/>(1000/batch)"]
+        AUD_METRICS["Metrics<br/>Aggregator"]
+        AUD_ARCHIVE["Partition<br/>Archival<br/>(90-day retention)"]
+
+        AUD_CONSUME --> AUD_BATCH
+        AUD_CONSUME --> AUD_METRICS
+        AUD_BATCH --> AUD_ARCHIVE
+    end
+
+    KA[/"Kafka — audit.events"/]
+
+    %% ═══════════════════════════════════════════════════════
+    %% CROSS-CUTTING: INFRASTRUCTURE
+    %% ═══════════════════════════════════════════════════════
+    subgraph INFRA["🏗 CROSS-CUTTING INFRASTRUCTURE"]
+        direction LR
+        REDIS[("Redis Cluster<br/>(Dedup Cache +<br/>Config Cache)")]
+        ORACLE[("Oracle RAC<br/>(events, payloads,<br/>dispatches, config,<br/>audit, metrics)")]
+        PROM["Prometheus<br/>(Micrometer<br/>17 custom metrics)"]
+        GRAFANA["Grafana<br/>Dashboards"]
+        SPLUNK["Splunk<br/>(Structured Logs)"]
+
+        PROM --> GRAFANA
+    end
+
+    %% ═══════════════════════════════════════════════════════
+    %% SHARED LIBRARY
+    %% ═══════════════════════════════════════════════════════
+    COMMON["📦 platform-common<br/>(Shared Library)<br/>Error codes · Models · Factories<br/>Kafka config · Metrics"]
+
+    %% ═══════════════════════════════════════════════════════
+    %% FLOW CONNECTIONS
+    %% ═══════════════════════════════════════════════════════
+
+    %% Upstream → Kafka Inbound
+    US1 --> KI1
+    US2 --> KI2
+    US3 --> KI3
+    US4 --> KI4
+    USN --> KIN
+
+    %% Kafka Inbound → Ingestion
+    KI1 --> ING_LISTEN
+    KI2 --> ING_LISTEN
+    KI3 --> ING_LISTEN
+    KI4 --> ING_LISTEN
+    KIN --> ING_LISTEN
+
+    %% Ingestion → Kafka Processing
+    ING_ENRICH --> KP
+
+    %% Kafka Processing → Processing
+    KP --> PROC_PRE
+
+    %% Processing Outbox → Kafka Dispatch
+    PROC_POLLER --> KD_HIGH
+    PROC_POLLER --> KD_MED
+    PROC_POLLER --> KD_LOW
+
+    %% Kafka Dispatch → Dispatch
+    KD_HIGH --> DSP_CONSUMER
+    KD_MED --> DSP_CONSUMER
+    KD_LOW --> DSP_CONSUMER
+
+    %% Dispatch → Vendor APIs
+    DSP_ADAPTER --> V_SMS
+    DSP_ADAPTER --> V_EMAIL
+    DSP_ADAPTER --> V_OTP
+    DSP_ADAPTER --> V_VOICE
+    DSP_ADAPTER --> V_WEBHOOK
+    DSP_ADAPTER --> V_PUSH
+
+    %% Dispatch failures → Kafka Retry
+    DSP_ADAPTER -- "failure" --> KR
+    KR --> RTY_CONSUME
+
+    %% Retry re-dispatch → Kafka Dispatch
+    RTY_CHECK -- "retry" --> KD_HIGH
+    RTY_CHECK -- "retry" --> KD_MED
+
+    %% All services → Kafka Audit
+    ING_ENRICH -. "audit" .-> KA
+    PROC_POST -. "audit" .-> KA
+    DSP_ADAPTER -. "audit" .-> KA
+    RTY_CHECK -. "audit" .-> KA
+    KA --> AUD_CONSUME
+
+    %% Infrastructure connections
+    ING_DEDUP <-. "dedup check" .-> REDIS
+    PROC_BATCH -. "batch write" .-> ORACLE
+    DSP_BATCH -. "batch write" .-> ORACLE
+    AUD_BATCH -. "batch write" .-> ORACLE
+    AUD_METRICS -. "metrics" .-> ORACLE
+
+    %% Observability connections (all services emit)
+    INGESTION_LAYER -. "metrics" .-> PROM
+    PROCESSING_LAYER -. "metrics" .-> PROM
+    DISPATCH_LAYER -. "metrics" .-> PROM
+    RETRY_LAYER -. "metrics" .-> PROM
+    AUDIT_LAYER -. "metrics" .-> PROM
+
+    INGESTION_LAYER -. "logs" .-> SPLUNK
+    PROCESSING_LAYER -. "logs" .-> SPLUNK
+    DISPATCH_LAYER -. "logs" .-> SPLUNK
+    RETRY_LAYER -. "logs" .-> SPLUNK
+    AUDIT_LAYER -. "logs" .-> SPLUNK
+
+    %% Shared library dependency (subtle)
+    COMMON -. "used by all services" .-> INGESTION_LAYER
+    COMMON -. "used by all services" .-> PROCESSING_LAYER
+    COMMON -. "used by all services" .-> DISPATCH_LAYER
+    COMMON -. "used by all services" .-> RETRY_LAYER
+    COMMON -. "used by all services" .-> AUDIT_LAYER
+
+    %% ═══════════════════════════════════════════════════════
+    %% STYLES
+    %% ═══════════════════════════════════════════════════════
+    classDef upstream fill:#FBEAF0,stroke:#ED93B1,color:#72243E
+    classDef kafka fill:#FAEEDA,stroke:#FAC775,color:#633806
+    classDef ingestion fill:#E6F1FB,stroke:#85B7EB,color:#0C447C
+    classDef processing fill:#E1F5EE,stroke:#5DCAA5,color:#085041
+    classDef dispatch fill:#EEEDFE,stroke:#AFA9EC,color:#3C3489
+    classDef vendor fill:#FAECE7,stroke:#F0997B,color:#712B13
+    classDef retry fill:#FAEEDA,stroke:#FAC775,color:#633806
+    classDef audit fill:#EAF3DE,stroke:#97C459,color:#27500A
+    classDef infra fill:#F1EFE8,stroke:#B4B2A9,color:#444441
+    classDef common fill:#F1EFE8,stroke:#D3D1C7,color:#2C2C2A
+
+    class US1,US2,US3,US4,USN upstream
+    class KI1,KI2,KI3,KI4,KIN,KP,KR,KA kafka
+    class KD_HIGH,KD_MED,KD_LOW kafka
+    class ING_LISTEN,ING_DEDUP,ING_SCHEMA,ING_ENRICH ingestion
+    class PROC_PRE,PROC_UPSTREAM,PROC_POST,PROC_BATCH,PROC_OUTBOX,PROC_POLLER processing
+    class DSP_CONSUMER,DSP_ASYNC,DSP_R4J,DSP_ADAPTER,DSP_BATCH dispatch
+    class V_SMS,V_EMAIL,V_OTP,V_VOICE,V_WEBHOOK,V_PUSH vendor
+    class RTY_CONSUME,RTY_BACKOFF,RTY_CHECK,RTY_DLT retry
+    class AUD_CONSUME,AUD_BATCH,AUD_METRICS,AUD_ARCHIVE audit
+    class REDIS,ORACLE,PROM,GRAFANA,SPLUNK infra
+    class COMMON common

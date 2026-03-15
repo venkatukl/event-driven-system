@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Event Processing Platform — Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#FAFAF8;--bg2:#F1F0EC;--bg3:#E8E7E3;
+  --tx:#1A1A18;--tx2:#5F5E5A;--tx3:#888780;
+  --bd:#D3D1C7;--bd2:#B4B2A9;
+  --blue:#E6F1FB;--blue-s:#85B7EB;--blue-t:#0C447C;--blue-m:#378ADD;
+  --teal:#E1F5EE;--teal-s:#5DCAA5;--teal-t:#085041;--teal-m:#1D9E75;
+  --purple:#EEEDFE;--purple-s:#AFA9EC;--purple-t:#3C3489;--purple-m:#7F77DD;
+  --amber:#FAEEDA;--amber-s:#FAC775;--amber-t:#633806;--amber-m:#BA7517;
+  --coral:#FAECE7;--coral-s:#F0997B;--coral-t:#712B13;--coral-m:#D85A30;
+  --green:#EAF3DE;--green-s:#97C459;--green-t:#27500A;--green-m:#639922;
+  --red:#FCEBEB;--red-s:#F09595;--red-t:#791F1F;--red-m:#E24B4A;
+  --gray:#F1EFE8;--gray-s:#B4B2A9;--gray-t:#444441;
+  --pink:#FBEAF0;--pink-s:#ED93B1;--pink-t:#72243E;
+  --font:'DM Sans',system-ui,sans-serif;
+  --mono:'DM Mono',monospace;
+}
+[data-theme="dark"]{
+  --bg:#1A1A18;--bg2:#2C2C2A;--bg3:#3D3D3A;
+  --tx:#E8E7E3;--tx2:#B4B2A9;--tx3:#888780;
+  --bd:#444441;--bd2:#5F5E5A;
+  --blue:#042C53;--blue-s:#378ADD;--blue-t:#B5D4F4;--blue-m:#85B7EB;
+  --teal:#04342C;--teal-s:#1D9E75;--teal-t:#9FE1CB;--teal-m:#5DCAA5;
+  --purple:#26215C;--purple-s:#7F77DD;--purple-t:#CECBF6;--purple-m:#AFA9EC;
+  --amber:#412402;--amber-s:#BA7517;--amber-t:#FAC775;--amber-m:#EF9F27;
+  --coral:#4A1B0C;--coral-s:#D85A30;--coral-t:#F5C4B3;--coral-m:#F0997B;
+  --green:#173404;--green-s:#639922;--green-t:#C0DD97;--green-m:#97C459;
+  --red:#501313;--red-s:#E24B4A;--red-t:#F7C1C1;--red-m:#F09595;
+  --gray:#2C2C2A;--gray-s:#5F5E5A;--gray-t:#D3D1C7;
+  --pink:#4B1528;--pink-s:#D4537E;--pink-t:#F4C0D1;
+}
+html{font-size:15px}
+body{
+  font-family:var(--font);background:var(--bg);color:var(--tx);
+  min-height:100vh;padding:2rem 1.5rem;
+  transition:background .3s,color .3s;
+}
+.wrap{max-width:1060px;margin:0 auto}
+header{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:2rem;flex-wrap:wrap}
+.title-block h1{font-size:1.4rem;font-weight:600;letter-spacing:-.02em;line-height:1.2}
+.title-block p{font-size:.8rem;color:var(--tx2);margin-top:4px;font-family:var(--mono)}
+.controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.theme-btn{
+  width:32px;height:32px;border-radius:50%;border:0.5px solid var(--bd);
+  background:var(--bg2);cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:all .15s;font-size:14px;color:var(--tx2);
+}
+.theme-btn:hover{background:var(--bg3);border-color:var(--bd2)}
+.pill{
+  font-family:var(--font);font-size:.75rem;font-weight:500;
+  padding:6px 14px;border-radius:20px;border:0.5px solid var(--bd);
+  background:transparent;color:var(--tx2);cursor:pointer;
+  transition:all .15s;
+}
+.pill:hover{background:var(--bg2);border-color:var(--bd2)}
+.pill.on{color:var(--blue-t);background:var(--blue);border-color:var(--blue-s)}
+
+.diagram-card{
+  background:var(--bg2);border-radius:16px;padding:1.5rem;
+  border:0.5px solid var(--bd);margin-bottom:1.5rem;
+  transition:background .3s,border-color .3s;
+}
+.diagram-card h2{font-size:.9rem;font-weight:600;margin-bottom:1rem;letter-spacing:-.01em}
+
+svg{display:block;width:100%;height:auto}
+svg text{font-family:var(--font)}
+svg .th{font-size:13px;font-weight:500;fill:var(--tx)}
+svg .ts{font-size:11px;font-weight:400;fill:var(--tx2)}
+svg .arr{stroke:var(--tx3);stroke-width:1}
+
+.g-layer{transition:opacity .35s ease}
+.g-layer.dim{opacity:.08}
+
+.svc-box{cursor:pointer;transition:transform .12s}
+.svc-box:hover{filter:brightness(1.03)}
+
+.legend-bar{
+  display:flex;gap:16px;flex-wrap:wrap;padding:1rem 0 0;
+  border-top:0.5px solid var(--bd);margin-top:1rem;
+}
+.legend-bar span{font-size:.7rem;color:var(--tx2);display:flex;align-items:center;gap:5px;font-family:var(--mono)}
+.ldot{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:1.5rem}
+.stat{background:var(--bg2);border-radius:10px;padding:12px 14px;border:0.5px solid var(--bd);transition:background .3s}
+.stat .label{font-size:.65rem;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;font-family:var(--mono)}
+.stat .val{font-size:1.1rem;font-weight:600;margin-top:2px;letter-spacing:-.02em}
+
+.topic-grid{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.topic-pill{
+  font-family:var(--mono);font-size:.65rem;
+  padding:3px 10px;border-radius:12px;
+  border:0.5px solid var(--amber-s);color:var(--amber-t);background:var(--amber);
+}
+.topic-pill.dlt{border-color:var(--red-s);color:var(--red-t);background:var(--red)}
+
+footer{text-align:center;padding:2rem 0 1rem;font-size:.7rem;color:var(--tx3);font-family:var(--mono)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="title-block">
+    <h1>Event processing platform</h1>
+    <p>5 microservices · 10 upstreams · 6 channels · 5M msg/day</p>
+  </div>
+  <div class="controls">
+    <button class="pill on" data-layer="all" onclick="filterLayer('all')">Full pipeline</button>
+    <button class="pill" data-layer="happy" onclick="filterLayer('happy')">Happy path</button>
+    <button class="pill" data-layer="failure" onclick="filterLayer('failure')">Failure paths</button>
+    <button class="pill" data-layer="infra" onclick="filterLayer('infra')">Infrastructure</button>
+    <button class="theme-btn" onclick="toggleTheme()" title="Toggle theme" id="theme-icon">◐</button>
+  </div>
+</header>
+
+<div class="stats">
+  <div class="stat"><div class="label">Daily volume</div><div class="val">5M msg</div></div>
+  <div class="stat"><div class="label">Peak throughput</div><div class="val">~1,200/s</div></div>
+  <div class="stat"><div class="label">Upstreams</div><div class="val">10 → 15+</div></div>
+  <div class="stat"><div class="label">Channels</div><div class="val">6</div></div>
+  <div class="stat"><div class="label">Retention</div><div class="val">90 days</div></div>
+</div>
+
+<!-- ═══ MAIN PIPELINE ═══ -->
+<div class="diagram-card">
+<h2>Message flow — left to right</h2>
+<svg viewBox="0 0 960 170">
+<defs>
+  <marker id="a1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+</defs>
+
+<g class="g-layer" data-group="happy">
+
+<!-- Upstreams -->
+<rect x="10" y="30" width="60" height="20" rx="4" fill="var(--gray)" stroke="var(--gray-s)" stroke-width="0.5"/>
+<text class="ts" x="40" y="44" text-anchor="middle" dominant-baseline="central">Banking</text>
+<rect x="10" y="54" width="60" height="20" rx="4" fill="var(--gray)" stroke="var(--gray-s)" stroke-width="0.5"/>
+<text class="ts" x="40" y="68" text-anchor="middle" dominant-baseline="central">Cards</text>
+<rect x="10" y="78" width="60" height="20" rx="4" fill="var(--gray)" stroke="var(--gray-s)" stroke-width="0.5"/>
+<text class="ts" x="40" y="92" text-anchor="middle" dominant-baseline="central">Loans</text>
+<rect x="10" y="102" width="60" height="20" rx="4" fill="var(--gray)" stroke="var(--gray-s)" stroke-width="0.5"/>
+<text class="ts" x="40" y="116" text-anchor="middle" dominant-baseline="central">+7 more</text>
+<text class="ts" x="40" y="140" text-anchor="middle">10 upstreams</text>
+
+<!-- Lines to Kafka inbound -->
+<line x1="72" y1="40" x2="90" y2="72" class="arr" marker-end="url(#a1)"/>
+<line x1="72" y1="64" x2="90" y2="72" class="arr" marker-end="url(#a1)"/>
+<line x1="72" y1="88" x2="90" y2="78" class="arr" marker-end="url(#a1)"/>
+<line x1="72" y1="112" x2="90" y2="78" class="arr" marker-end="url(#a1)"/>
+
+<!-- Kafka inbound -->
+<rect x="92" y="60" width="30" height="32" rx="6" fill="var(--amber)" stroke="var(--amber-s)" stroke-width="0.5"/>
+<text x="107" y="80" text-anchor="middle" dominant-baseline="central" fill="var(--amber-t)" style="font-size:10px;font-weight:500;font-family:var(--mono)">K</text>
+<text class="ts" x="107" y="108" text-anchor="middle">inbound.*</text>
+
+<line x1="124" y1="76" x2="148" y2="76" class="arr" marker-end="url(#a1)"/>
+
+<!-- INGESTION -->
+<g class="svc-box">
+<rect x="150" y="32" width="140" height="90" rx="12" fill="var(--blue)" stroke="var(--blue-s)" stroke-width="0.5"/>
+<text x="220" y="52" text-anchor="middle" dominant-baseline="central" fill="var(--blue-t)" style="font-size:13px;font-weight:600">Ingestion</text>
+<text x="220" y="68" text-anchor="middle" dominant-baseline="central" fill="var(--blue-t)" style="font-size:10px;opacity:.7">2 pods × concurrency=5</text>
+<line x1="166" y1="78" x2="274" y2="78" stroke="var(--blue-s)" stroke-width="0.5" opacity="0.4"/>
+<text x="220" y="94" text-anchor="middle" dominant-baseline="central" fill="var(--blue-t)" style="font-size:10px">Dedup (Redis+DB)</text>
+<text x="220" y="110" text-anchor="middle" dominant-baseline="central" fill="var(--blue-t)" style="font-size:10px">Schema validate + enrich</text>
+</g>
+
+<line x1="292" y1="76" x2="316" y2="76" class="arr" marker-end="url(#a1)"/>
+
+<!-- Kafka processing -->
+<rect x="318" y="60" width="30" height="32" rx="6" fill="var(--amber)" stroke="var(--amber-s)" stroke-width="0.5"/>
+<text x="333" y="80" text-anchor="middle" dominant-baseline="central" fill="var(--amber-t)" style="font-size:10px;font-weight:500;font-family:var(--mono)">K</text>
+<text class="ts" x="333" y="108" text-anchor="middle">processing</text>
+
+<line x1="350" y1="76" x2="374" y2="76" class="arr" marker-end="url(#a1)"/>
+
+<!-- PROCESSING -->
+<g class="svc-box">
+<rect x="376" y="20" width="150" height="114" rx="12" fill="var(--teal)" stroke="var(--teal-s)" stroke-width="0.5"/>
+<text x="451" y="40" text-anchor="middle" dominant-baseline="central" fill="var(--teal-t)" style="font-size:13px;font-weight:600">Processing</text>
+<text x="451" y="56" text-anchor="middle" dominant-baseline="central" fill="var(--teal-t)" style="font-size:10px;opacity:.7">3 pods × concurrency=5</text>
+<line x1="392" y1="66" x2="510" y2="66" stroke="var(--teal-s)" stroke-width="0.5" opacity="0.4"/>
+<text x="451" y="82" text-anchor="middle" dominant-baseline="central" fill="var(--teal-t)" style="font-size:10px">Pre → upstream → post</text>
+<text x="451" y="96" text-anchor="middle" dominant-baseline="central" fill="var(--teal-t)" style="font-size:10px">Factory + config proc</text>
+<text x="451" y="112" text-anchor="middle" dominant-baseline="central" fill="var(--teal-t)" style="font-size:10px">Outbox (JDBC batch 500)</text>
+<text x="451" y="126" text-anchor="middle" dominant-baseline="central" fill="var(--teal-t)" style="font-size:10px">SKIP LOCKED poller</text>
+</g>
+
+<line x1="528" y1="76" x2="548" y2="76" class="arr" marker-end="url(#a1)"/>
+
+<!-- Kafka dispatch (priority) -->
+<rect x="550" y="40" width="30" height="20" rx="6" fill="var(--amber)" stroke="var(--amber-s)" stroke-width="0.5"/>
+<text x="565" y="54" text-anchor="middle" dominant-baseline="central" fill="var(--amber-t)" style="font-size:9px;font-weight:500;font-family:var(--mono)">H</text>
+<rect x="550" y="64" width="30" height="20" rx="6" fill="var(--amber)" stroke="var(--amber-s)" stroke-width="0.5"/>
+<text x="565" y="78" text-anchor="middle" dominant-baseline="central" fill="var(--amber-t)" style="font-size:9px;font-weight:500;font-family:var(--mono)">M</text>
+<rect x="550" y="88" width="30" height="20" rx="6" fill="var(--amber)" stroke="var(--amber-s)" stroke-width="0.5"/>
+<text x="565" y="102" text-anchor="middle" dominant-baseline="central" fill="var(--amber-t)" style="font-size:9px;font-weight:500;font-family:var(--mono)">L</text>
+<text class="ts" x="565" y="124" text-anchor="middle">dispatch.*</text>
+<text class="ts" x="565" y="138" text-anchor="middle">priority tiers</text>
+
+<path d="M582 50 L610 62" fill="none" class="arr" marker-end="url(#a1)"/>
+<path d="M582 74 L610 74" fill="none" class="arr" marker-end="url(#a1)"/>
+<path d="M582 98 L610 86" fill="none" class="arr" marker-end="url(#a1)"/>
+
+<!-- DISPATCH -->
+<g class="svc-box">
+<rect x="612" y="32" width="150" height="90" rx="12" fill="var(--purple)" stroke="var(--purple-s)" stroke-width="0.5"/>
+<text x="687" y="52" text-anchor="middle" dominant-baseline="central" fill="var(--purple-t)" style="font-size:13px;font-weight:600">Dispatch</text>
+<text x="687" y="68" text-anchor="middle" dominant-baseline="central" fill="var(--purple-t)" style="font-size:10px;opacity:.7">3–5 pods (HPA) × c=5</text>
+<line x1="628" y1="78" x2="746" y2="78" stroke="var(--purple-s)" stroke-width="0.5" opacity="0.4"/>
+<text x="687" y="94" text-anchor="middle" dominant-baseline="central" fill="var(--purple-t)" style="font-size:10px">Async 50 threads</text>
+<text x="687" y="108" text-anchor="middle" dominant-baseline="central" fill="var(--purple-t)" style="font-size:10px">Resilience4J CB+RL+BH</text>
+</g>
+
+<line x1="764" y1="50" x2="790" y2="50" class="arr" marker-end="url(#a1)"/>
+<line x1="764" y1="66" x2="790" y2="66" class="arr" marker-end="url(#a1)"/>
+<line x1="764" y1="82" x2="790" y2="82" class="arr" marker-end="url(#a1)"/>
+<line x1="764" y1="98" x2="790" y2="98" class="arr" marker-end="url(#a1)"/>
+
+<!-- Vendors -->
+<rect x="792" y="32" width="80" height="90" rx="10" fill="none" stroke="var(--bd)" stroke-width="0.5" stroke-dasharray="4 3"/>
+<text x="832" y="48" text-anchor="middle" fill="var(--coral-t)" style="font-size:10px;font-weight:500">Vendor APIs</text>
+<text class="ts" x="832" y="66">SMS</text>
+<text class="ts" x="832" y="80">Email / OTP</text>
+<text class="ts" x="832" y="94">Voice / Push</text>
+<text class="ts" x="832" y="108">Webhook</text>
+
+<!-- Flow arrows from upstream labels -->
+<text class="ts" x="480" y="155" text-anchor="middle" fill="var(--tx3)">← message flow direction →</text>
+
+</g>
+</svg>
+
+<div class="legend-bar">
+<span><span class="ldot" style="background:var(--blue-s)"></span>Ingestion</span>
+<span><span class="ldot" style="background:var(--teal-s)"></span>Processing</span>
+<span><span class="ldot" style="background:var(--purple-s)"></span>Dispatch</span>
+<span><span class="ldot" style="background:var(--amber-s)"></span>Kafka topics</span>
+<span><span class="ldot" style="background:var(--gray-s)"></span>External</span>
+</div>
+</div>
+
+<!-- ═══ FAILURE PATHS ═══ -->
+<div class="diagram-card">
+<h2>Failure and resilience paths</h2>
+<svg viewBox="0 0 960 180">
+<defs>
+  <marker id="a2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+</defs>
+
+<g class="g-layer" data-group="failure">
+
+<!-- Ingestion retry -->
+<rect x="20" y="16" width="200" height="62" rx="10" fill="var(--blue)" stroke="var(--blue-s)" stroke-width="0.5"/>
+<text x="120" y="34" text-anchor="middle" dominant-baseline="central" fill="var(--blue-t)" style="font-size:12px;font-weight:600">Ingestion failures</text>
+<text x="120" y="52" text-anchor="middle" dominant-baseline="central" fill="var(--blue-t)" style="font-size:10px">Spring Kafka in-place retry</text>
+<text x="120" y="66" text-anchor="middle" dominant-baseline="central" fill="var(--blue-t)" style="font-size:10px">3 attempts, exponential backoff</text>
+
+<path d="M222 60 L260 60" fill="none" stroke="var(--red-m)" stroke-width="0.8" marker-end="url(#a2)"/>
+<text x="241" y="54" text-anchor="middle" fill="var(--red-t)" style="font-size:9px">fail</text>
+
+<rect x="262" y="46" width="110" height="28" rx="14" fill="var(--red)" stroke="var(--red-s)" stroke-width="0.5"/>
+<text x="317" y="64" text-anchor="middle" dominant-baseline="central" fill="var(--red-t)" style="font-size:10px;font-family:var(--mono)">dlt.ingestion</text>
+
+<!-- Processing retry -->
+<rect x="20" y="96" width="200" height="62" rx="10" fill="var(--teal)" stroke="var(--teal-s)" stroke-width="0.5"/>
+<text x="120" y="114" text-anchor="middle" dominant-baseline="central" fill="var(--teal-t)" style="font-size:12px;font-weight:600">Processing failures</text>
+<text x="120" y="132" text-anchor="middle" dominant-baseline="central" fill="var(--teal-t)" style="font-size:10px">In-place retry + Resilience4J CB</text>
+<text x="120" y="146" text-anchor="middle" dominant-baseline="central" fill="var(--teal-t)" style="font-size:10px">Circuit breaker on Oracle</text>
+
+<path d="M222 140 L260 140" fill="none" stroke="var(--red-m)" stroke-width="0.8" marker-end="url(#a2)"/>
+<text x="241" y="134" text-anchor="middle" fill="var(--red-t)" style="font-size:9px">fail</text>
+
+<rect x="262" y="126" width="116" height="28" rx="14" fill="var(--red)" stroke="var(--red-s)" stroke-width="0.5"/>
+<text x="320" y="144" text-anchor="middle" dominant-baseline="central" fill="var(--red-t)" style="font-size:10px;font-family:var(--mono)">dlt.processing</text>
+
+<!-- Dispatch retry (external service) -->
+<rect x="440" y="16" width="174" height="62" rx="10" fill="var(--purple)" stroke="var(--purple-s)" stroke-width="0.5"/>
+<text x="527" y="34" text-anchor="middle" dominant-baseline="central" fill="var(--purple-t)" style="font-size:12px;font-weight:600">Dispatch failures</text>
+<text x="527" y="52" text-anchor="middle" dominant-baseline="central" fill="var(--purple-t)" style="font-size:10px">Vendor 5xx / timeout</text>
+<text x="527" y="66" text-anchor="middle" dominant-baseline="central" fill="var(--purple-t)" style="font-size:10px">Rate limited</text>
+
+<path d="M616 46 L648 46" fill="none" stroke="var(--amber-m)" stroke-width="0.8" marker-end="url(#a2)"/>
+
+<rect x="650" y="16" width="170" height="62" rx="10" fill="var(--amber)" stroke="var(--amber-s)" stroke-width="0.5"/>
+<text x="735" y="34" text-anchor="middle" dominant-baseline="central" fill="var(--amber-t)" style="font-size:12px;font-weight:600">Retry service</text>
+<text x="735" y="52" text-anchor="middle" dominant-baseline="central" fill="var(--amber-t)" style="font-size:10px">2 pods × concurrency=3</text>
+<text x="735" y="66" text-anchor="middle" dominant-baseline="central" fill="var(--amber-t)" style="font-size:10px">Backoff: 30s → 1m → 5m → 15m</text>
+
+<!-- Re-dispatch loop -->
+<path d="M735 80 L735 110 L527 110 L527 80" fill="none" stroke="var(--amber-m)" stroke-width="0.8" stroke-dasharray="4 3" marker-end="url(#a2)"/>
+<text x="631" y="106" text-anchor="middle" fill="var(--amber-t)" style="font-size:9px;font-family:var(--mono)">re-dispatch to priority topic</text>
+
+<!-- Exhausted → DLT -->
+<path d="M822 46 L870 46" fill="none" stroke="var(--red-m)" stroke-width="0.8" marker-end="url(#a2)"/>
+<text x="846" y="38" text-anchor="middle" fill="var(--red-t)" style="font-size:9px">max</text>
+
+<rect x="872" y="32" width="70" height="28" rx="14" fill="var(--red)" stroke="var(--red-s)" stroke-width="0.5"/>
+<text x="907" y="50" text-anchor="middle" dominant-baseline="central" fill="var(--red-t)" style="font-size:10px;font-family:var(--mono)">DLT</text>
+
+<!-- Summary label -->
+<text x="480" y="170" text-anchor="middle" fill="var(--tx3)" style="font-size:10px;font-family:var(--mono)">Ingestion + Processing: short in-place retry (seconds)  ·  Dispatch: long external retry (minutes)</text>
+
+</g>
+</svg>
+</div>
+
+<!-- ═══ AUDIT & OBSERVABILITY ═══ -->
+<div class="diagram-card">
+<h2>Audit and observability</h2>
+<svg viewBox="0 0 960 130">
+<defs>
+  <marker id="a3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+</defs>
+
+<g class="g-layer" data-group="infra">
+
+<!-- Services publishing audit -->
+<rect x="20" y="16" width="90" height="28" rx="6" fill="var(--blue)" stroke="var(--blue-s)" stroke-width="0.5"/>
+<text x="65" y="34" text-anchor="middle" dominant-baseline="central" fill="var(--blue-t)" style="font-size:10px">Ingestion</text>
+<rect x="120" y="16" width="90" height="28" rx="6" fill="var(--teal)" stroke="var(--teal-s)" stroke-width="0.5"/>
+<text x="165" y="34" text-anchor="middle" dominant-baseline="central" fill="var(--teal-t)" style="font-size:10px">Processing</text>
+<rect x="220" y="16" width="90" height="28" rx="6" fill="var(--purple)" stroke="var(--purple-s)" stroke-width="0.5"/>
+<text x="265" y="34" text-anchor="middle" dominant-baseline="central" fill="var(--purple-t)" style="font-size:10px">Dispatch</text>
+<rect x="320" y="16" width="90" height="28" rx="6" fill="var(--amber)" stroke="var(--amber-s)" stroke-width="0.5"/>
+<text x="365" y="34" text-anchor="middle" dominant-baseline="central" fill="var(--amber-t)" style="font-size:10px">Retry</text>
+
+<!-- Arrows down to Kafka audit -->
+<line x1="65" y1="46" x2="65" y2="62" stroke="var(--tx3)" stroke-width="0.5" stroke-dasharray="2 2"/>
+<line x1="165" y1="46" x2="165" y2="62" stroke="var(--tx3)" stroke-width="0.5" stroke-dasharray="2 2"/>
+<line x1="265" y1="46" x2="265" y2="62" stroke="var(--tx3)" stroke-width="0.5" stroke-dasharray="2 2"/>
+<line x1="365" y1="46" x2="365" y2="62" stroke="var(--tx3)" stroke-width="0.5" stroke-dasharray="2 2"/>
+
+<rect x="40" y="64" width="350" height="28" rx="14" fill="var(--amber)" stroke="var(--amber-s)" stroke-width="0.5"/>
+<text x="215" y="82" text-anchor="middle" dominant-baseline="central" fill="var(--amber-t)" style="font-size:10px;font-family:var(--mono)">Kafka — audit.events (all services publish here)</text>
+
+<line x1="392" y1="78" x2="434" y2="78" class="arr" marker-end="url(#a3)"/>
+
+<!-- Audit service -->
+<rect x="436" y="52" width="160" height="56" rx="10" fill="var(--green)" stroke="var(--green-s)" stroke-width="0.5"/>
+<text x="516" y="70" text-anchor="middle" dominant-baseline="central" fill="var(--green-t)" style="font-size:12px;font-weight:600">Audit service</text>
+<text x="516" y="86" text-anchor="middle" dominant-baseline="central" fill="var(--green-t)" style="font-size:10px">2 pods · batch 1000/insert</text>
+<text x="516" y="100" text-anchor="middle" dominant-baseline="central" fill="var(--green-t)" style="font-size:10px">90-day partition archival</text>
+
+<line x1="598" y1="66" x2="636" y2="66" class="arr" marker-end="url(#a3)"/>
+<line x1="598" y1="90" x2="636" y2="90" class="arr" marker-end="url(#a3)"/>
+
+<!-- Outputs -->
+<rect x="638" y="52" width="130" height="28" rx="8" fill="var(--coral)" stroke="var(--coral-s)" stroke-width="0.5"/>
+<text x="703" y="70" text-anchor="middle" dominant-baseline="central" fill="var(--coral-t)" style="font-size:10px">Oracle metrics tables</text>
+<rect x="638" y="84" width="130" height="28" rx="8" fill="var(--coral)" stroke="var(--coral-s)" stroke-width="0.5"/>
+<text x="703" y="102" text-anchor="middle" dominant-baseline="central" fill="var(--coral-t)" style="font-size:10px">SLA reporting view</text>
+
+<!-- Micrometer -->
+<text x="215" y="118" text-anchor="middle" fill="var(--tx3)" style="font-size:10px;font-family:var(--mono)">All services → Micrometer (17 custom metrics) → Prometheus → Grafana  ·  Structured JSON → Splunk</text>
+
+</g>
+</svg>
+</div>
+
+<!-- ═══ INFRASTRUCTURE ═══ -->
+<div class="diagram-card">
+<h2>Infrastructure and shared components</h2>
+<svg viewBox="0 0 960 110">
+
+<g class="g-layer" data-group="infra">
+
+<rect x="20" y="12" width="180" height="80" rx="10" fill="var(--coral)" stroke="var(--coral-s)" stroke-width="0.5"/>
+<text x="110" y="30" text-anchor="middle" dominant-baseline="central" fill="var(--coral-t)" style="font-size:12px;font-weight:600">Redis cluster</text>
+<text x="110" y="48" text-anchor="middle" dominant-baseline="central" fill="var(--coral-t)" style="font-size:10px">Dedup cache (ingestion)</text>
+<text x="110" y="64" text-anchor="middle" dominant-baseline="central" fill="var(--coral-t)" style="font-size:10px">Config cache</text>
+<text x="110" y="80" text-anchor="middle" dominant-baseline="central" fill="var(--coral-t)" style="font-size:10px">Rate limit counters</text>
+
+<rect x="220" y="12" width="240" height="80" rx="10" fill="var(--coral)" stroke="var(--coral-s)" stroke-width="0.5"/>
+<text x="340" y="30" text-anchor="middle" dominant-baseline="central" fill="var(--coral-t)" style="font-size:12px;font-weight:600">Oracle RAC / Data Guard</text>
+<text x="340" y="48" text-anchor="middle" dominant-baseline="central" fill="var(--coral-t)" style="font-size:10px">events + event_payloads (hot/cold split)</text>
+<text x="340" y="64" text-anchor="middle" dominant-baseline="central" fill="var(--coral-t)" style="font-size:10px">event_outbox (SKIP LOCKED poller)</text>
+<text x="340" y="80" text-anchor="middle" dominant-baseline="central" fill="var(--coral-t)" style="font-size:10px">dispatches · retries · upstream_config · audit</text>
+
+<rect x="480" y="12" width="220" height="80" rx="10" fill="var(--coral)" stroke="var(--coral-s)" stroke-width="0.5"/>
+<text x="590" y="30" text-anchor="middle" dominant-baseline="central" fill="var(--coral-t)" style="font-size:12px;font-weight:600">Observability stack</text>
+<text x="590" y="48" text-anchor="middle" dominant-baseline="central" fill="var(--coral-t)" style="font-size:10px">Prometheus → Grafana (real-time)</text>
+<text x="590" y="64" text-anchor="middle" dominant-baseline="central" fill="var(--coral-t)" style="font-size:10px">Splunk (structured JSON logs)</text>
+<text x="590" y="80" text-anchor="middle" dominant-baseline="central" fill="var(--coral-t)" style="font-size:10px">Oracle hourly metrics (SLA)</text>
+
+<rect x="720" y="12" width="220" height="80" rx="10" fill="var(--gray)" stroke="var(--gray-s)" stroke-width="0.5"/>
+<text x="830" y="30" text-anchor="middle" dominant-baseline="central" fill="var(--gray-t)" style="font-size:12px;font-weight:600">platform-common (shared lib)</text>
+<text x="830" y="48" text-anchor="middle" dominant-baseline="central" fill="var(--gray-t)" style="font-size:10px">ErrorCode enum (25+ codes)</text>
+<text x="830" y="64" text-anchor="middle" dominant-baseline="central" fill="var(--gray-t)" style="font-size:10px">Models · Factories · Kafka config</text>
+<text x="830" y="80" text-anchor="middle" dominant-baseline="central" fill="var(--gray-t)" style="font-size:10px">Micrometer PlatformMetrics</text>
+
+</g>
+</svg>
+
+<div style="margin-top:12px">
+<div style="font-size:.75rem;font-weight:500;color:var(--tx2);margin-bottom:6px">Kafka topics (enterprise-managed · 10 partitions/topic · RF=3)</div>
+<div class="topic-grid">
+  <span class="topic-pill">inbound.banking</span>
+  <span class="topic-pill">inbound.insurance</span>
+  <span class="topic-pill">inbound.cards</span>
+  <span class="topic-pill">inbound.loans</span>
+  <span class="topic-pill">inbound.{+6}</span>
+  <span class="topic-pill">processing.events</span>
+  <span class="topic-pill">dispatch.sms.high</span>
+  <span class="topic-pill">dispatch.sms.medium</span>
+  <span class="topic-pill">dispatch.sms.low</span>
+  <span class="topic-pill">dispatch.email.*</span>
+  <span class="topic-pill">dispatch.otp.*</span>
+  <span class="topic-pill">dispatch.voice.*</span>
+  <span class="topic-pill">dispatch.webhook.*</span>
+  <span class="topic-pill">dispatch.push.*</span>
+  <span class="topic-pill">retry.events</span>
+  <span class="topic-pill">audit.events</span>
+  <span class="topic-pill dlt">dlt.ingestion</span>
+  <span class="topic-pill dlt">dlt.processing</span>
+  <span class="topic-pill dlt">dlt (dispatch)</span>
+</div>
+</div>
+</div>
+
+<footer>
+  Event Processing Platform · Architecture v2 · Java 17 · Spring Boot 3.2 · OpenShift
+</footer>
+
+</div>
+
+<script>
+function toggleTheme(){
+  const d=document.documentElement;
+  const dark=d.getAttribute('data-theme')==='dark';
+  d.setAttribute('data-theme',dark?'':'dark');
+  document.getElementById('theme-icon').textContent=dark?'◐':'◑';
+}
+function filterLayer(layer){
+  document.querySelectorAll('.pill[data-layer]').forEach(b=>{
+    b.classList.toggle('on',b.dataset.layer===layer);
+  });
+  document.querySelectorAll('.g-layer').forEach(g=>{
+    const group=g.dataset.group;
+    if(layer==='all'){
+      g.classList.remove('dim');
+    } else {
+      g.classList.toggle('dim',group!==layer);
+    }
+  });
+}
+if(window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches){
+  document.documentElement.setAttribute('data-theme','dark');
+  document.getElementById('theme-icon').textContent='◑';
+}
+</script>
+</body>
+</html>
