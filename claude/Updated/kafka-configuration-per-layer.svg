@@ -1,0 +1,288 @@
+<svg width="960" height="1100" viewBox="0 0 960 1100" xmlns="http://www.w3.org/2000/svg" style="font-family:'DM Sans','Segoe UI',system-ui,sans-serif;background:#FAFAF8">
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+</defs>
+
+<text x="30" y="32" font-size="18" font-weight="600" fill="#1A1A18" letter-spacing="-0.4">Kafka configuration — per layer</text>
+<text x="30" y="50" font-size="11" fill="#888780" font-family="'DM Mono',monospace">Topics, partitions, producers, consumers, concurrency, poll settings, and consumer group strategy</text>
+
+<!-- Global config bar -->
+<rect x="30" y="66" width="900" height="32" rx="8" fill="#FAEEDA" stroke="#FAC775" stroke-width="0.5"/>
+<text x="46" y="86" font-size="10" font-weight="500" fill="#633806" font-family="'DM Mono',monospace">Global: enterprise-managed cluster · max 10 partitions/topic · RF=3 · CooperativeStickyAssignor · static group membership (group.instance.id=HOSTNAME)</text>
+
+<!-- Vertical spine -->
+<line x1="70" y1="120" x2="70" y2="1060" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="3 3"/>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- LAYER 1: INBOUND                           -->
+<!-- ═══════════════════════════════════════════ -->
+<circle cx="70" cy="136" r="14" fill="#FAEEDA" stroke="#FAC775" stroke-width="0.5"/>
+<text x="70" y="136" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="600" fill="#633806">1</text>
+<text x="100" y="132" font-size="13" font-weight="500" fill="#1A1A18">Inbound layer</text>
+<text x="100" y="148" font-size="10" fill="#888780">One topic per upstream — isolates backpressure, allows per-upstream consumer tuning</text>
+
+<!-- Topic box -->
+<rect x="100" y="162" width="830" height="120" rx="10" fill="none" stroke="#D3D1C7" stroke-width="0.5"/>
+
+<!-- Topics column -->
+<text x="116" y="180" font-size="10" font-weight="500" fill="#444441">TOPICS (10)</text>
+<rect x="116" y="188" width="120" height="20" rx="10" fill="#FAEEDA" stroke="#FAC775" stroke-width="0.5"/>
+<text x="176" y="202" text-anchor="middle" font-size="9" fill="#633806" font-family="'DM Mono',monospace">inbound.banking</text>
+<rect x="116" y="212" width="120" height="20" rx="10" fill="#FAEEDA" stroke="#FAC775" stroke-width="0.5"/>
+<text x="176" y="226" text-anchor="middle" font-size="9" fill="#633806" font-family="'DM Mono',monospace">inbound.insurance</text>
+<rect x="116" y="236" width="120" height="20" rx="10" fill="#FAEEDA" stroke="#FAC775" stroke-width="0.5"/>
+<text x="176" y="250" text-anchor="middle" font-size="9" fill="#633806" font-family="'DM Mono',monospace">inbound.{+8 more}</text>
+
+<!-- Partitions column -->
+<text x="260" y="180" font-size="10" font-weight="500" fill="#444441">PARTITIONS</text>
+<text x="260" y="198" font-size="10" fill="#5F5E5A">10 per topic</text>
+<text x="260" y="214" font-size="10" fill="#888780">Key: upstream_id +</text>
+<text x="260" y="228" font-size="10" fill="#888780">message_id hash</text>
+
+<!-- Producer column -->
+<text x="396" y="180" font-size="10" font-weight="500" fill="#444441">PRODUCER</text>
+<rect x="396" y="188" width="120" height="24" rx="6" fill="#FBEAF0" stroke="#ED93B1" stroke-width="0.5"/>
+<text x="456" y="204" text-anchor="middle" font-size="10" fill="#72243E">Upstream systems</text>
+<text x="396" y="230" font-size="10" fill="#888780">External producers</text>
+<text x="396" y="244" font-size="10" fill="#888780">Schema enforced at</text>
+<text x="396" y="258" font-size="10" fill="#888780">ingestion on consume</text>
+
+<!-- Arrow -->
+<path d="M520 200 L544 200" fill="none" stroke="#888780" stroke-width="0.8" marker-end="url(#a)"/>
+
+<!-- Consumer column -->
+<text x="560" y="180" font-size="10" font-weight="500" fill="#444441">CONSUMER</text>
+<rect x="560" y="188" width="130" height="24" rx="6" fill="#E6F1FB" stroke="#85B7EB" stroke-width="0.5"/>
+<text x="625" y="204" text-anchor="middle" font-size="10" fill="#0C447C">ingestion-service</text>
+<text x="560" y="230" font-size="10" fill="#888780">2 pods × concurrency=5</text>
+<text x="560" y="244" font-size="10" fill="#888780">= 10 consumer threads</text>
+<text x="560" y="258" font-size="10" fill="#888780">= 1 thread per partition</text>
+
+<!-- Settings column -->
+<text x="730" y="180" font-size="10" font-weight="500" fill="#444441">SETTINGS</text>
+<text x="730" y="198" font-size="10" fill="#5F5E5A" font-family="'DM Mono',monospace">batch: 500/poll</text>
+<text x="730" y="214" font-size="10" fill="#5F5E5A" font-family="'DM Mono',monospace">poll: 100ms</text>
+<text x="730" y="230" font-size="10" fill="#5F5E5A" font-family="'DM Mono',monospace">ack: manual</text>
+<text x="730" y="246" font-size="10" fill="#5F5E5A" font-family="'DM Mono',monospace">offset: earliest</text>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- LAYER 2: PROCESSING                        -->
+<!-- ═══════════════════════════════════════════ -->
+<circle cx="70" cy="310" r="14" fill="#FAEEDA" stroke="#FAC775" stroke-width="0.5"/>
+<text x="70" y="310" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="600" fill="#633806">2</text>
+<text x="100" y="306" font-size="13" font-weight="500" fill="#1A1A18">Processing layer</text>
+<text x="100" y="322" font-size="10" fill="#888780">Single topic — all upstreams merged after ingestion. Upstream routing via EventEnvelope.upstreamId</text>
+
+<rect x="100" y="336" width="830" height="100" rx="10" fill="none" stroke="#D3D1C7" stroke-width="0.5"/>
+
+<text x="116" y="354" font-size="10" font-weight="500" fill="#444441">TOPIC (1)</text>
+<rect x="116" y="362" width="120" height="20" rx="10" fill="#FAEEDA" stroke="#FAC775" stroke-width="0.5"/>
+<text x="176" y="376" text-anchor="middle" font-size="9" fill="#633806" font-family="'DM Mono',monospace">processing.events</text>
+
+<text x="260" y="354" font-size="10" font-weight="500" fill="#444441">PARTITIONS</text>
+<text x="260" y="372" font-size="10" fill="#5F5E5A">10</text>
+<text x="260" y="388" font-size="10" fill="#888780">Key: event_id</text>
+<text x="260" y="404" font-size="10" fill="#888780">(even distribution)</text>
+
+<text x="396" y="354" font-size="10" font-weight="500" fill="#444441">PRODUCER</text>
+<rect x="396" y="362" width="130" height="24" rx="6" fill="#E6F1FB" stroke="#85B7EB" stroke-width="0.5"/>
+<text x="461" y="378" text-anchor="middle" font-size="10" fill="#0C447C">ingestion-service</text>
+<text x="396" y="404" font-size="10" fill="#888780">After dedup + validate</text>
+
+<path d="M530 374 L544 374" fill="none" stroke="#888780" stroke-width="0.8" marker-end="url(#a)"/>
+
+<text x="560" y="354" font-size="10" font-weight="500" fill="#444441">CONSUMER</text>
+<rect x="560" y="362" width="140" height="24" rx="6" fill="#E1F5EE" stroke="#5DCAA5" stroke-width="0.5"/>
+<text x="630" y="378" text-anchor="middle" font-size="10" fill="#085041">processing-service</text>
+<text x="560" y="404" font-size="10" fill="#888780">3 pods × concurrency=5</text>
+<text x="560" y="418" font-size="10" fill="#888780">= 15 threads (5 idle)</text>
+
+<text x="730" y="354" font-size="10" font-weight="500" fill="#444441">SETTINGS</text>
+<text x="730" y="372" font-size="10" fill="#5F5E5A" font-family="'DM Mono',monospace">batch: 500/poll</text>
+<text x="730" y="388" font-size="10" fill="#5F5E5A" font-family="'DM Mono',monospace">poll: 100ms</text>
+<text x="730" y="404" font-size="10" fill="#5F5E5A" font-family="'DM Mono',monospace">ack: manual</text>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- LAYER 3: DISPATCH (PRIORITY TIERED)        -->
+<!-- ═══════════════════════════════════════════ -->
+<circle cx="70" cy="466" r="14" fill="#FAEEDA" stroke="#FAC775" stroke-width="0.5"/>
+<text x="70" y="466" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="600" fill="#633806">3</text>
+<text x="100" y="462" font-size="13" font-weight="500" fill="#1A1A18">Dispatch layer — priority-tiered</text>
+<text x="100" y="478" font-size="10" fill="#888780">6 channels × 3 priority tiers = 18 topics. Consumer threads and poll interval vary by tier.</text>
+
+<rect x="100" y="492" width="830" height="180" rx="10" fill="none" stroke="#D3D1C7" stroke-width="0.5"/>
+
+<text x="116" y="510" font-size="10" font-weight="500" fill="#444441">TOPICS (18)</text>
+<text x="260" y="510" font-size="10" font-weight="500" fill="#444441">PARTITIONS</text>
+<text x="396" y="510" font-size="10" font-weight="500" fill="#444441">PRODUCER</text>
+<text x="560" y="510" font-size="10" font-weight="500" fill="#444441">CONSUMER</text>
+<text x="730" y="510" font-size="10" font-weight="500" fill="#444441">SETTINGS</text>
+
+<!-- HIGH tier -->
+<rect x="116" y="522" width="130" height="20" rx="10" fill="#FCEBEB" stroke="#F09595" stroke-width="0.5"/>
+<text x="181" y="536" text-anchor="middle" font-size="9" fill="#791F1F" font-family="'DM Mono',monospace">dispatch.{ch}.high</text>
+<text x="260" y="536" font-size="10" fill="#5F5E5A">10 each</text>
+
+<rect x="396" y="522" width="140" height="20" rx="6" fill="#E1F5EE" stroke="#5DCAA5" stroke-width="0.5"/>
+<text x="466" y="536" text-anchor="middle" font-size="9" fill="#085041">outbox poller (proc)</text>
+<path d="M540 532 L554 532" fill="none" stroke="#888780" stroke-width="0.8" marker-end="url(#a)"/>
+<rect x="560" y="522" width="130" height="20" rx="6" fill="#EEEDFE" stroke="#AFA9EC" stroke-width="0.5"/>
+<text x="625" y="536" text-anchor="middle" font-size="9" fill="#3C3489">dispatch-service</text>
+
+<text x="730" y="536" font-size="10" fill="#A32D2D" font-family="'DM Mono',monospace">5 threads, 50ms poll</text>
+
+<!-- MEDIUM tier -->
+<rect x="116" y="548" width="130" height="20" rx="10" fill="#FAEEDA" stroke="#FAC775" stroke-width="0.5"/>
+<text x="181" y="562" text-anchor="middle" font-size="9" fill="#633806" font-family="'DM Mono',monospace">dispatch.{ch}.med</text>
+<text x="260" y="562" font-size="10" fill="#5F5E5A">10 each</text>
+
+<rect x="396" y="548" width="140" height="20" rx="6" fill="#E1F5EE" stroke="#5DCAA5" stroke-width="0.5"/>
+<text x="466" y="562" text-anchor="middle" font-size="9" fill="#085041">outbox poller (proc)</text>
+<path d="M540 558 L554 558" fill="none" stroke="#888780" stroke-width="0.8" marker-end="url(#a)"/>
+<rect x="560" y="548" width="130" height="20" rx="6" fill="#EEEDFE" stroke="#AFA9EC" stroke-width="0.5"/>
+<text x="625" y="562" text-anchor="middle" font-size="9" fill="#3C3489">dispatch-service</text>
+
+<text x="730" y="562" font-size="10" fill="#854F0B" font-family="'DM Mono',monospace">3 threads, 100ms poll</text>
+
+<!-- LOW tier -->
+<rect x="116" y="574" width="130" height="20" rx="10" fill="#EAF3DE" stroke="#97C459" stroke-width="0.5"/>
+<text x="181" y="588" text-anchor="middle" font-size="9" fill="#27500A" font-family="'DM Mono',monospace">dispatch.{ch}.low</text>
+<text x="260" y="588" font-size="10" fill="#5F5E5A">10 each</text>
+
+<rect x="396" y="574" width="140" height="20" rx="6" fill="#E1F5EE" stroke="#5DCAA5" stroke-width="0.5"/>
+<text x="466" y="588" text-anchor="middle" font-size="9" fill="#085041">outbox poller (proc)</text>
+<path d="M540 584 L554 584" fill="none" stroke="#888780" stroke-width="0.8" marker-end="url(#a)"/>
+<rect x="560" y="574" width="130" height="20" rx="6" fill="#EEEDFE" stroke="#AFA9EC" stroke-width="0.5"/>
+<text x="625" y="588" text-anchor="middle" font-size="9" fill="#3C3489">dispatch-service</text>
+
+<text x="730" y="588" font-size="10" fill="#3B6D11" font-family="'DM Mono',monospace">2 threads, 200ms poll</text>
+
+<!-- Dispatch consumer summary -->
+<text x="116" y="616" font-size="10" fill="#888780">Channels: SMS, Email, OTP, Voice, Webhook, Push</text>
+<text x="116" y="632" font-size="10" fill="#888780">Key: event_id (preserves ordering per event)</text>
+<text x="560" y="616" font-size="10" fill="#888780">3–5 pods (HPA) × concurrency=5</text>
+<text x="560" y="632" font-size="10" fill="#888780">Priority assigned from upstream_config</text>
+<text x="730" y="616" font-size="10" fill="#5F5E5A" font-family="'DM Mono',monospace">ack: manual</text>
+<text x="730" y="632" font-size="10" fill="#5F5E5A" font-family="'DM Mono',monospace">batch: 100/poll</text>
+<text x="560" y="652" font-size="10" fill="#888780">with event-type overrides</text>
+<text x="116" y="656" font-size="10" fill="#5F5E5A">Priority controls: thread count + poll interval per tier</text>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- LAYER 4: RETRY                             -->
+<!-- ═══════════════════════════════════════════ -->
+<circle cx="70" cy="700" r="14" fill="#FAEEDA" stroke="#FAC775" stroke-width="0.5"/>
+<text x="70" y="700" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="600" fill="#633806">4</text>
+<text x="100" y="696" font-size="13" font-weight="500" fill="#1A1A18">Retry layer</text>
+<text x="100" y="712" font-size="10" fill="#888780">Single topic for all dispatch failures. Retry service re-publishes to original dispatch topic after backoff.</text>
+
+<rect x="100" y="726" width="830" height="100" rx="10" fill="none" stroke="#D3D1C7" stroke-width="0.5"/>
+
+<text x="116" y="744" font-size="10" font-weight="500" fill="#444441">TOPIC (1)</text>
+<rect x="116" y="752" width="100" height="20" rx="10" fill="#FAEEDA" stroke="#FAC775" stroke-width="0.5"/>
+<text x="166" y="766" text-anchor="middle" font-size="9" fill="#633806" font-family="'DM Mono',monospace">retry.events</text>
+
+<text x="260" y="744" font-size="10" font-weight="500" fill="#444441">PARTITIONS</text>
+<text x="260" y="762" font-size="10" fill="#5F5E5A">10</text>
+<text x="260" y="778" font-size="10" fill="#888780">Key: event_id</text>
+
+<text x="396" y="744" font-size="10" font-weight="500" fill="#444441">PRODUCER</text>
+<rect x="396" y="752" width="130" height="24" rx="6" fill="#EEEDFE" stroke="#AFA9EC" stroke-width="0.5"/>
+<text x="461" y="768" text-anchor="middle" font-size="10" fill="#3C3489">dispatch-service</text>
+<text x="396" y="794" font-size="10" fill="#888780">On vendor failure</text>
+<text x="396" y="810" font-size="10" fill="#888780">(5xx, timeout, rate limit)</text>
+
+<path d="M530 764 L544 764" fill="none" stroke="#888780" stroke-width="0.8" marker-end="url(#a)"/>
+
+<text x="560" y="744" font-size="10" font-weight="500" fill="#444441">CONSUMER</text>
+<rect x="560" y="752" width="120" height="24" rx="6" fill="#FAEEDA" stroke="#FAC775" stroke-width="0.5"/>
+<text x="620" y="768" text-anchor="middle" font-size="10" fill="#633806">retry-service</text>
+<text x="560" y="794" font-size="10" fill="#888780">2 pods × concurrency=3</text>
+<text x="560" y="810" font-size="10" fill="#888780">= 6 threads (4 idle)</text>
+
+<text x="730" y="744" font-size="10" font-weight="500" fill="#444441">SETTINGS</text>
+<text x="730" y="762" font-size="10" fill="#5F5E5A" font-family="'DM Mono',monospace">batch: 100/poll</text>
+<text x="730" y="778" font-size="10" fill="#5F5E5A" font-family="'DM Mono',monospace">poll: 500ms</text>
+<text x="730" y="794" font-size="10" fill="#5F5E5A" font-family="'DM Mono',monospace">ack: manual</text>
+<text x="730" y="810" font-size="10" fill="#888780">Re-publishes to</text>
+<text x="730" y="824" font-size="10" fill="#888780">dispatch.{ch}.{pri}</text>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- LAYER 5: AUDIT                             -->
+<!-- ═══════════════════════════════════════════ -->
+<circle cx="70" cy="856" r="14" fill="#FAEEDA" stroke="#FAC775" stroke-width="0.5"/>
+<text x="70" y="856" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="600" fill="#633806">5</text>
+<text x="100" y="852" font-size="13" font-weight="500" fill="#1A1A18">Audit layer</text>
+<text x="100" y="868" font-size="10" fill="#888780">Single topic. All services publish state transitions. Audit service is the sole consumer.</text>
+
+<rect x="100" y="882" width="830" height="80" rx="10" fill="none" stroke="#D3D1C7" stroke-width="0.5"/>
+
+<text x="116" y="900" font-size="10" font-weight="500" fill="#444441">TOPIC (1)</text>
+<rect x="116" y="908" width="100" height="20" rx="10" fill="#FAEEDA" stroke="#FAC775" stroke-width="0.5"/>
+<text x="166" y="922" text-anchor="middle" font-size="9" fill="#633806" font-family="'DM Mono',monospace">audit.events</text>
+
+<text x="260" y="900" font-size="10" font-weight="500" fill="#444441">PARTITIONS</text>
+<text x="260" y="918" font-size="10" fill="#5F5E5A">10</text>
+<text x="260" y="934" font-size="10" fill="#888780">Key: event_id</text>
+
+<text x="396" y="900" font-size="10" font-weight="500" fill="#444441">PRODUCERS (4)</text>
+<rect x="396" y="908" width="68" height="18" rx="4" fill="#E6F1FB" stroke="#85B7EB" stroke-width="0.5"/>
+<text x="430" y="920" text-anchor="middle" font-size="8" fill="#0C447C">ingestion</text>
+<rect x="470" y="908" width="72" height="18" rx="4" fill="#E1F5EE" stroke="#5DCAA5" stroke-width="0.5"/>
+<text x="506" y="920" text-anchor="middle" font-size="8" fill="#085041">processing</text>
+<rect x="396" y="930" width="64" height="18" rx="4" fill="#EEEDFE" stroke="#AFA9EC" stroke-width="0.5"/>
+<text x="428" y="942" text-anchor="middle" font-size="8" fill="#3C3489">dispatch</text>
+<rect x="466" y="930" width="50" height="18" rx="4" fill="#FAEEDA" stroke="#FAC775" stroke-width="0.5"/>
+<text x="491" y="942" text-anchor="middle" font-size="8" fill="#633806">retry</text>
+
+<path d="M522 926 L544 926" fill="none" stroke="#888780" stroke-width="0.8" marker-end="url(#a)"/>
+
+<text x="560" y="900" font-size="10" font-weight="500" fill="#444441">CONSUMER</text>
+<rect x="560" y="908" width="120" height="24" rx="6" fill="#EAF3DE" stroke="#97C459" stroke-width="0.5"/>
+<text x="620" y="924" text-anchor="middle" font-size="10" fill="#27500A">audit-service</text>
+<text x="560" y="950" font-size="10" fill="#888780">2 pods × concurrency=5</text>
+
+<text x="730" y="900" font-size="10" font-weight="500" fill="#444441">SETTINGS</text>
+<text x="730" y="918" font-size="10" fill="#5F5E5A" font-family="'DM Mono',monospace">batch: 1000/poll</text>
+<text x="730" y="934" font-size="10" fill="#5F5E5A" font-family="'DM Mono',monospace">poll: 200ms</text>
+<text x="730" y="950" font-size="10" fill="#5F5E5A" font-family="'DM Mono',monospace">ack: manual</text>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- LAYER 6: DLT                               -->
+<!-- ═══════════════════════════════════════════ -->
+<circle cx="70" cy="990" r="14" fill="#FAEEDA" stroke="#FAC775" stroke-width="0.5"/>
+<text x="70" y="990" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="600" fill="#633806">6</text>
+<text x="100" y="986" font-size="13" font-weight="500" fill="#1A1A18">Dead letter topics</text>
+<text x="100" y="1002" font-size="10" fill="#888780">Per-layer DLT topics for failed messages. Consumed by audit service for tracking. Manual replay via REST API.</text>
+
+<rect x="100" y="1016" width="830" height="52" rx="10" fill="none" stroke="#D3D1C7" stroke-width="0.5"/>
+
+<text x="116" y="1034" font-size="10" font-weight="500" fill="#444441">TOPICS (3)</text>
+<rect x="116" y="1040" width="96" height="20" rx="10" fill="#FCEBEB" stroke="#F09595" stroke-width="0.5"/>
+<text x="164" y="1054" text-anchor="middle" font-size="9" fill="#791F1F" font-family="'DM Mono',monospace">dlt.ingestion</text>
+<rect x="220" y="1040" width="104" height="20" rx="10" fill="#FCEBEB" stroke="#F09595" stroke-width="0.5"/>
+<text x="272" y="1054" text-anchor="middle" font-size="9" fill="#791F1F" font-family="'DM Mono',monospace">dlt.processing</text>
+<rect x="332" y="1040" width="56" height="20" rx="10" fill="#FCEBEB" stroke="#F09595" stroke-width="0.5"/>
+<text x="360" y="1054" text-anchor="middle" font-size="9" fill="#791F1F" font-family="'DM Mono',monospace">dlt</text>
+
+<text x="420" y="1034" font-size="10" font-weight="500" fill="#444441">PARTITIONS</text>
+<text x="420" y="1054" font-size="10" fill="#5F5E5A">10 each</text>
+
+<text x="530" y="1034" font-size="10" font-weight="500" fill="#444441">PRODUCERS</text>
+<text x="530" y="1054" font-size="10" fill="#888780">Respective service error handlers</text>
+
+<text x="730" y="1034" font-size="10" font-weight="500" fill="#444441">CONSUMER</text>
+<text x="730" y="1054" font-size="10" fill="#888780">audit-service (tracking + alerting)</text>
+
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SUMMARY BAR                                -->
+<!-- ═══════════════════════════════════════════ -->
+<text x="30" y="1092" font-size="10" fill="#888780" font-family="'DM Mono',monospace">Total: 31 topics · 310 partitions · batch consumers everywhere · manual ack · no auto-commit · offset tracking in Kafka (not DB)</text>
+
+</svg>
